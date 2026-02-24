@@ -1,0 +1,8 @@
+# FiveM Diagnostic Tool v6.1 PRO - Dependencies
+# Python 3.8+ required
+
+# Web Framework
+Flask>=2.3.0,<3.0.0
+
+# Utilities (included in Python stdlib, listed for documentation)
+# json, os, sys, re, shutil, subprocess, logging, datetime, uuid, threading
