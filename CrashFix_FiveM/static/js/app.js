@@ -118,8 +118,10 @@ function updateSystemInfoCard(data) {
     if (gtaData) {
         const gtaEl = document.getElementById('gta-status');
         if (gtaData.Path) {
-            gtaEl.textContent = 'Encontrado';
+            const platform = gtaData.Platform ? ` (${gtaData.Platform})` : '';
+            gtaEl.textContent = gtaData.Path + platform;
             gtaEl.style.color = 'var(--success)';
+            gtaEl.title = gtaData.Path;
         } else {
             gtaEl.textContent = 'No encontrado';
             gtaEl.style.color = 'var(--error)';
@@ -384,8 +386,10 @@ async function detectGTA() {
                     addConsoleLine(`    - ${p.path} (${p.platform})`, 'info');
                 });
             }
-            gtaEl.textContent = 'Encontrado';
+            const platform = gtaResult.Platform ? ` (${gtaResult.Platform})` : '';
+            gtaEl.textContent = gtaResult.Path + platform;
             gtaEl.style.color = 'var(--success)';
+            gtaEl.title = gtaResult.Path;
         } else {
             addConsoleLine('&cross; GTA V no encontrado', 'error');
             gtaEl.textContent = 'No encontrado';
