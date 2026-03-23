@@ -522,6 +522,7 @@ class RepairService:
             11: ('Optimizar graficos',         self.optimize_graphics_config),
             12: ('Configurar Texture Budget',  self.configure_texture_budget),
             13: ('Optimizaciones de Windows',  self.optimize_windows),
+            14: ('Actualizar driver GPU',       self.update_gpu_driver),
         }
 
         results = []
@@ -560,17 +561,51 @@ class RepairService:
     # ============= OPTIMIZACION =============
 
     def optimize_page_file(self) -> Dict[str, Any]:
-        """Calcula y recomienda el tamano optimo del archivo de paginacion."""
+        """Calcula y recomienda el tamano optimo del archivo de paginacion.
+
+        Solo agrega recomendacion si el tamano actual es insuficiente.
+        """
         from src.services.hardware_service import HardwareService
         hw = HardwareService(self.config)
         ram_info = hw.get_ram_info()
         ram_gb = ram_info.get('TotalGB', 8)
         recommended_mb = int(ram_gb * 1.5 * 1024)
-        self.session.report.add_recommendation(
-            f'Configura el archivo de paginacion a {recommended_mb} MB'
-        )
-        self._record_repair(True, f'Paginacion analizada: {recommended_mb} MB recomendado')
-        return {'success': True, 'recommended_mb': recommended_mb}
+
+        # Obtener tamano actual del archivo de paginacion
+        current_mb = 0
+        if is_windows():
+            try:
+                result = run_powershell(
+                    'Get-WmiObject Win32_PageFileUsage | Select-Object AllocatedBaseSize | ConvertTo-Json',
+                    timeout=10
+                )
+                if result:
+                    import json
+                    data = json.loads(result)
+                    if isinstance(data, list):
+                        current_mb = sum(pf.get('AllocatedBaseSize', 0) for pf in data)
+                    elif isinstance(data, dict):
+                        current_mb = data.get('AllocatedBaseSize', 0)
+            except Exception as e:
+                logger.warning(f"Error reading pagefile size: {e}")
+
+        # Solo recomendar si el actual es menor al 80% del recomendado
+        needs_adjustment = current_mb < (recommended_mb * 0.8)
+
+        if needs_adjustment:
+            self.session.report.add_recommendation(
+                f'Configura el archivo de paginacion a {recommended_mb} MB (actual: {current_mb} MB)'
+            )
+            self._record_repair(True, f'Paginacion insuficiente: {current_mb} MB actual, {recommended_mb} MB recomendado')
+        else:
+            self._record_repair(True, f'Paginacion correcta: {current_mb} MB (recomendado: {recommended_mb} MB)')
+
+        return {
+            'success': True,
+            'current_mb': current_mb,
+            'recommended_mb': recommended_mb,
+            'needs_adjustment': needs_adjustment
+        }
 
     def optimize_graphics_config(self) -> Dict[str, Any]:
         """Optimiza la configuracion grafica de GTA V."""
@@ -687,3 +722,185 @@ class RepairService:
             'failed': failed,
             'requires_restart': True
         }
+
+    # ============= ACTUALIZACION DE DRIVERS =============
+
+    def update_gpu_driver(self) -> Dict[str, Any]:
+        """Descarga e instala el driver mas reciente de GPU (NVIDIA o AMD).
+
+        Para NVIDIA: descarga el instalador Game Ready Driver mas reciente
+        y lo ejecuta en modo silencioso.
+        Para AMD: descarga AMD Software Adrenalin y lo ejecuta.
+        """
+        from src.services.hardware_service import HardwareService
+        hw = HardwareService(self.config)
+        driver_info = hw.check_driver_update()
+
+        if not driver_info.get('success'):
+            return {
+                'success': False,
+                'error': driver_info.get('error', 'No se pudo verificar el driver'),
+                'action': 'none'
+            }
+
+        vendor = driver_info.get('vendor', 'unknown')
+        download_url = driver_info.get('download_url')
+        needs_update = driver_info.get('needs_update', False)
+
+        if not needs_update:
+            self._record_repair(True, f'Driver GPU ya esta actualizado: {driver_info.get("current_driver")}')
+            return {
+                'success': True,
+                'action': 'none',
+                'message': 'El driver ya esta actualizado',
+                'current_driver': driver_info.get('current_driver'),
+                'latest_driver': driver_info.get('latest_driver')
+            }
+
+        if not download_url:
+            return {
+                'success': False,
+                'error': 'No se encontro URL de descarga',
+                'action': 'manual',
+                'vendor': vendor
+            }
+
+        # Descargar el instalador
+        import os
+        download_dir = os.path.join(self.paths.work_folder, 'DriverUpdate')
+        os.makedirs(download_dir, exist_ok=True)
+
+        if vendor == 'nvidia':
+            return self._download_and_install_nvidia_driver(download_url, download_dir, driver_info)
+        elif vendor == 'amd':
+            return self._download_and_install_amd_driver(download_dir, driver_info)
+        else:
+            return {
+                'success': False,
+                'action': 'manual',
+                'message': f'Descarga el driver manualmente desde: {download_url}',
+                'download_url': download_url
+            }
+
+    def _download_and_install_nvidia_driver(self, download_url: str, download_dir: str,
+                                             driver_info: Dict) -> Dict[str, Any]:
+        """Descarga e instala driver NVIDIA Game Ready."""
+        import os
+        import urllib.request
+
+        installer_path = os.path.join(download_dir, 'nvidia_driver_setup.exe')
+
+        try:
+            # Descargar instalador
+            logger.info(f"Downloading NVIDIA driver from: {download_url}")
+            req = urllib.request.Request(download_url, headers={'User-Agent': 'CrashFix/1.0'})
+            with urllib.request.urlopen(req, timeout=120) as response:
+                with open(installer_path, 'wb') as f:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+
+            if not os.path.exists(installer_path) or os.path.getsize(installer_path) < 1024:
+                return {
+                    'success': False,
+                    'error': 'La descarga del instalador fallo',
+                    'action': 'manual',
+                    'download_url': download_url
+                }
+
+            # Ejecutar instalador en modo silencioso (solo driver, sin GeForce Experience)
+            try:
+                run_command(
+                    [installer_path, '-s', '-noreboot', '-noeula', '-clean'],
+                    timeout=300  # 5 minutos para instalacion
+                )
+                self._record_repair(
+                    True,
+                    f'Driver NVIDIA actualizado: {driver_info.get("current_driver")} -> {driver_info.get("latest_driver")}'
+                )
+                return {
+                    'success': True,
+                    'action': 'installed',
+                    'previous_driver': driver_info.get('current_driver'),
+                    'new_driver': driver_info.get('latest_driver'),
+                    'requires_restart': True,
+                    'message': 'Driver NVIDIA instalado. Se recomienda reiniciar el PC.'
+                }
+            except Exception as e:
+                logger.warning(f"Silent install failed, opening installer: {e}")
+                # Si falla el modo silencioso, abrir el instalador normalmente
+                try:
+                    import subprocess
+                    subprocess.Popen([installer_path], shell=True)
+                    self._record_repair(True, 'Instalador de driver NVIDIA abierto')
+                    return {
+                        'success': True,
+                        'action': 'opened_installer',
+                        'message': 'Se abrio el instalador de NVIDIA. Sigue las instrucciones en pantalla.',
+                        'installer_path': installer_path
+                    }
+                except Exception as e2:
+                    return {
+                        'success': False,
+                        'error': f'No se pudo ejecutar el instalador: {e2}',
+                        'action': 'manual',
+                        'installer_path': installer_path
+                    }
+
+        except Exception as e:
+            logger.error(f"Error downloading NVIDIA driver: {e}")
+            return {
+                'success': False,
+                'error': f'Error al descargar: {str(e)}',
+                'action': 'manual',
+                'download_url': download_url
+            }
+
+    def _download_and_install_amd_driver(self, download_dir: str,
+                                          driver_info: Dict) -> Dict[str, Any]:
+        """Descarga e instala AMD Software Adrenalin."""
+        import os
+        import urllib.request
+
+        # AMD Auto-Detect and Install tool
+        amd_autodetect_url = 'https://drivers.amd.com/drivers/installer/24.10/whql/amd-software-auto-detect.exe'
+        installer_path = os.path.join(download_dir, 'amd_software_auto_detect.exe')
+
+        try:
+            logger.info("Downloading AMD Auto-Detect tool")
+            req = urllib.request.Request(amd_autodetect_url, headers={'User-Agent': 'CrashFix/1.0'})
+            with urllib.request.urlopen(req, timeout=120) as response:
+                with open(installer_path, 'wb') as f:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+
+            if os.path.exists(installer_path) and os.path.getsize(installer_path) > 1024:
+                import subprocess
+                subprocess.Popen([installer_path], shell=True)
+                self._record_repair(True, 'AMD Software Auto-Detect abierto para actualizar driver')
+                return {
+                    'success': True,
+                    'action': 'opened_installer',
+                    'message': 'Se abrio AMD Software Auto-Detect. Detectara e instalara el mejor driver automaticamente.',
+                    'installer_path': installer_path
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'La descarga del instalador AMD fallo',
+                    'action': 'manual',
+                    'download_url': 'https://www.amd.com/en/support/download/drivers.html'
+                }
+        except Exception as e:
+            logger.error(f"Error downloading AMD driver: {e}")
+            return {
+                'success': False,
+                'error': f'Error al descargar: {str(e)}',
+                'action': 'manual',
+                'download_url': 'https://www.amd.com/en/support/download/drivers.html'
+            }

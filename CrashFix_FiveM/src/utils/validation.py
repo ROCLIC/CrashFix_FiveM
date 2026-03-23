@@ -5,7 +5,7 @@ from typing import List, Optional, Set
 
 logger = logging.getLogger(__name__)
 SAFE_FILENAME_PATTERN = re.compile(r'^[\w\-. ]+$')
-VALID_REPAIR_IDS: Set[int] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+VALID_REPAIR_IDS: Set[int] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
 
 def validate_backup_path(path: str, backup_folder: str) -> bool:
     if not path or not backup_folder: return False

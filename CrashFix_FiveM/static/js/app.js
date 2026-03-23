@@ -860,13 +860,18 @@ async function configureDefender() {
 }
 
 async function optimizePageFile() {
-    showLoading('Optimizando paginacion...');
-    addConsoleLine('Optimizando archivo de paginacion...', 'info');
+    showLoading('Analizando paginacion...');
+    addConsoleLine('Analizando archivo de paginacion...', 'info');
     const result = await apiCall('optimize/pagefile');
     if (result && result.success) {
-        addConsoleLine(`&check; Paginacion: ${result.recommended_mb} MB recomendado`, 'success');
-        if (!recommendations.includes(`Configura el archivo de paginacion a ${result.recommended_mb} MB`)) {
-            recommendations.push(`Configura el archivo de paginacion a ${result.recommended_mb} MB`);
+        if (result.needs_adjustment) {
+            addConsoleLine(`⚠ Paginacion insuficiente: ${result.current_mb} MB actual, ${result.recommended_mb} MB recomendado`, 'warning');
+            const recMsg = `Configura el archivo de paginacion a ${result.recommended_mb} MB (actual: ${result.current_mb} MB)`;
+            if (!recommendations.includes(recMsg)) {
+                recommendations.push(recMsg);
+            }
+        } else {
+            addConsoleLine(`&check; Paginacion correcta: ${result.current_mb} MB (recomendado: ${result.recommended_mb} MB)`, 'success');
         }
         updateRecommendations();
     }
@@ -923,6 +928,67 @@ async function optimizeWindows() {
             updateRecommendations();
         }
         updateCounters(); updateRepairsList();
+    }
+    hideLoading();
+}
+
+async function updateGPUDriver() {
+    showLoading('Verificando driver GPU...');
+    addConsoleLine('Verificando estado del driver de GPU...', 'info');
+
+    // Primero verificar si hay actualizacion disponible
+    const check = await apiCall('detect/driver-update');
+    if (!check || !check.success) {
+        addConsoleLine('No se pudo verificar el estado del driver', 'error');
+        hideLoading();
+        return;
+    }
+
+    addConsoleLine(`GPU: ${check.gpu_name}`, 'info');
+    addConsoleLine(`Driver actual: ${check.current_driver}`, 'info');
+    addConsoleLine(`Fabricante: ${check.vendor ? check.vendor.toUpperCase() : 'Desconocido'}`, 'info');
+
+    if (check.latest_driver) {
+        addConsoleLine(`Ultima version disponible: ${check.latest_driver}`, 'info');
+    }
+
+    if (!check.needs_update) {
+        addConsoleLine('&check; El driver de GPU ya esta actualizado', 'success');
+        hideLoading();
+        return;
+    }
+
+    // Hay actualizacion disponible
+    const latestText = check.latest_driver ? ` (${check.latest_driver})` : '';
+    addConsoleLine(`\u26a0 Driver desactualizado. Actualizacion disponible${latestText}`, 'warning');
+    addConsoleLine('Descargando e instalando driver...', 'info');
+
+    const result = await apiCall('repair/update-driver');
+    if (result) {
+        if (result.action === 'installed') {
+            addConsoleLine(`&check; Driver actualizado: ${result.previous_driver} -> ${result.new_driver}`, 'success');
+            repairs.push(`Driver GPU actualizado a ${result.new_driver}`);
+            if (!recommendations.includes('Reinicia el PC para completar la actualizacion del driver')) {
+                recommendations.push('Reinicia el PC para completar la actualizacion del driver');
+            }
+            updateRecommendations();
+        } else if (result.action === 'opened_installer') {
+            addConsoleLine('&check; Instalador abierto. Sigue las instrucciones en pantalla.', 'success');
+            repairs.push('Instalador de driver GPU abierto');
+        } else if (result.action === 'manual') {
+            const url = result.download_url || '';
+            addConsoleLine(`Descarga manual necesaria: ${url}`, 'warning');
+            if (url && !recommendations.includes(`Actualiza el driver GPU desde: ${url}`)) {
+                recommendations.push(`Actualiza el driver GPU desde: ${url}`);
+            }
+            updateRecommendations();
+        } else if (result.action === 'none') {
+            addConsoleLine('&check; ' + (result.message || 'Driver ya actualizado'), 'success');
+        } else {
+            addConsoleLine('Error: ' + (result.error || 'No se pudo actualizar'), 'error');
+        }
+        updateCounters();
+        updateRepairsList();
     }
     hideLoading();
 }

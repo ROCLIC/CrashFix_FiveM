@@ -654,6 +654,19 @@ def api_smart_diagnose_and_fix():
     if conflicts_info.get('Count', 0) > 0:
         report.add_recommendation(f'Software conflictivo detectado: {", ".join(conflicts_info.get("ConflictsFound", []))}')
 
+    # Verificar si el driver de GPU esta desactualizado
+    driver_check = hw.check_driver_update()
+    if driver_check.get('needs_update'):
+        vendor = driver_check.get('vendor', '').upper()
+        current = driver_check.get('current_driver', 'N/A')
+        latest = driver_check.get('latest_driver', 'N/A')
+        if latest and latest != 'None':
+            report.add_recommendation(f'Driver {vendor} desactualizado: {current} -> Actualizar a {latest}')
+        else:
+            age = driver_check.get('driver_age_months', '')
+            age_text = f' ({age} meses de antiguedad)' if age else ''
+            report.add_recommendation(f'Driver {vendor} desactualizado{age_text}. Actualiza desde el panel de reparacion.')
+
     phases[-1]['status'] = 'completed'
 
     report.calculate_overall_status()
@@ -676,7 +689,8 @@ def api_smart_diagnose_and_fix():
         'vcredist': vcredist_info,
         'network': network_info,
         'mods': mods_info,
-        'conflicts': conflicts_info
+        'conflicts': conflicts_info,
+        'driver_status': driver_check
     })
 
 
@@ -865,6 +879,23 @@ def api_optimize_windows():
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.optimize_windows())
+
+
+@app.route('/api/detect/driver-update', methods=['POST'])
+@api_error_handler
+def api_detect_driver_update():
+    """Verifica si el driver de GPU esta desactualizado."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.check_driver_update())
+
+
+@app.route('/api/repair/update-driver', methods=['POST'])
+@api_error_handler
+def api_repair_update_driver():
+    """Descarga e instala el driver mas reciente de GPU."""
+    diag_session = get_current_session()
+    repair = RepairService(svc_cfg, diag_session)
+    return jsonify(repair.update_gpu_driver())
 
 
 @app.route('/api/optimize/dns', methods=['POST'])

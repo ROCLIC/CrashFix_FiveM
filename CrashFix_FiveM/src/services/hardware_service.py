@@ -221,6 +221,164 @@ class HardwareService:
             'Processor': sys_info.get('processor', 'N/A')
         }
 
+    def check_driver_update(self) -> Dict[str, Any]:
+        """Verifica si el driver de GPU esta desactualizado.
+
+        Para NVIDIA: consulta nvidia-smi para version actual y la API de NVIDIA
+        para la ultima version Game Ready disponible.
+        Para AMD: lee la version del driver de WMI y consulta la pagina de AMD.
+        """
+        import re
+        gpu_info = self.get_gpu_info()
+        if not gpu_info or gpu_info[0].get('Name') == 'No detectada':
+            return {
+                'success': False,
+                'error': 'No se detecto GPU',
+                'needs_update': False
+            }
+
+        gpu = gpu_info[0]
+        gpu_name = gpu.get('Name', '').lower()
+        current_driver = gpu.get('DriverVersion', 'N/A')
+
+        result = {
+            'success': True,
+            'gpu_name': gpu.get('Name', 'Desconocido'),
+            'current_driver': current_driver,
+            'latest_driver': None,
+            'needs_update': False,
+            'download_url': None,
+            'vendor': 'unknown'
+        }
+
+        if 'nvidia' in gpu_name:
+            result['vendor'] = 'nvidia'
+            nvidia_result = self._check_nvidia_driver_update(current_driver)
+            result.update(nvidia_result)
+        elif 'amd' in gpu_name or 'radeon' in gpu_name:
+            result['vendor'] = 'amd'
+            amd_result = self._check_amd_driver_update(current_driver)
+            result.update(amd_result)
+        else:
+            result['vendor'] = 'intel'
+            result['download_url'] = 'https://www.intel.com/content/www/us/en/download-center/home.html'
+
+        return result
+
+    def _check_nvidia_driver_update(self, current_driver: str) -> Dict[str, Any]:
+        """Verifica actualizacion de driver NVIDIA.
+
+        Usa nvidia-smi para la version actual en formato NVIDIA (ej: 551.86)
+        y consulta la API de busqueda de drivers de NVIDIA.
+        """
+        import re
+        result = {'needs_update': False, 'latest_driver': None, 'download_url': None}
+
+        # Obtener version en formato NVIDIA desde nvidia-smi
+        nvidia_version = None
+        try:
+            smi_result = run_command(
+                ['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'],
+                timeout=self.timeout_config.nvidia_smi_timeout
+            )
+            if smi_result and smi_result.returncode == 0:
+                nvidia_version = smi_result.stdout.strip()
+                result['current_driver'] = nvidia_version
+        except Exception:
+            # Convertir formato Windows (ej: 31.0.15.5186) a NVIDIA (ej: 551.86)
+            if current_driver and current_driver != 'N/A':
+                parts = current_driver.replace('.', '')
+                if len(parts) >= 5:
+                    try:
+                        nvidia_version = f"{parts[-5:-2]}.{parts[-2:]}"
+                    except Exception:
+                        pass
+
+        # Consultar ultima version disponible via API de NVIDIA
+        try:
+            import urllib.request
+            import urllib.error
+            # API de busqueda de drivers NVIDIA (Game Ready, GeForce, Windows 10/11 64-bit)
+            lookup_url = (
+                'https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/'
+                'AjaxDriverService.php?func=DriverManualLookup&psid=101&pfid=816'
+                '&osID=57&languageCode=1033&isWHQL=1&dch=1&sort1=0&numberOfResults=1'
+            )
+            req = urllib.request.Request(lookup_url, headers={'User-Agent': 'CrashFix/1.0'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                import json as json_mod
+                data = json_mod.loads(response.read().decode('utf-8'))
+                ids = data.get('IDS', [])
+                if ids:
+                    latest_info = ids[0]
+                    latest_version = latest_info.get('downloadInfo', {}).get('Version', '')
+                    download_url = latest_info.get('downloadInfo', {}).get('DownloadURL', '')
+                    if latest_version:
+                        result['latest_driver'] = latest_version
+                        result['download_url'] = download_url or f'https://www.nvidia.com/Download/index.aspx'
+
+                        # Comparar versiones
+                        if nvidia_version and latest_version:
+                            try:
+                                current_num = float(nvidia_version)
+                                latest_num = float(latest_version)
+                                result['needs_update'] = current_num < latest_num
+                            except ValueError:
+                                result['needs_update'] = nvidia_version != latest_version
+        except Exception as e:
+            logger.warning(f"Error checking NVIDIA driver update: {e}")
+            # Fallback: proporcionar URL de descarga manual
+            result['download_url'] = 'https://www.nvidia.com/Download/index.aspx'
+
+        return result
+
+    def _check_amd_driver_update(self, current_driver: str) -> Dict[str, Any]:
+        """Verifica actualizacion de driver AMD.
+
+        Lee la version actual del driver y proporciona enlace de descarga.
+        AMD no tiene una API publica simple, asi que se compara la fecha del driver.
+        """
+        result = {
+            'needs_update': False,
+            'latest_driver': None,
+            'download_url': 'https://www.amd.com/en/support/download/drivers.html'
+        }
+
+        try:
+            # Obtener fecha del driver actual
+            driver_date_result = run_powershell(
+                'Get-WmiObject Win32_VideoController | Where-Object {$_.Name -like "*AMD*" -or $_.Name -like "*Radeon*"} '
+                '| Select-Object DriverDate | ConvertTo-Json',
+                timeout=self.timeout_config.powershell_timeout
+            )
+            if driver_date_result:
+                import json as json_mod
+                data = json_mod.loads(driver_date_result)
+                if isinstance(data, list) and data:
+                    data = data[0]
+                driver_date_str = data.get('DriverDate', '')
+                if driver_date_str:
+                    # WMI devuelve fecha en formato: 20240115000000.000000-000
+                    import re
+                    date_match = re.match(r'(\d{4})(\d{2})(\d{2})', driver_date_str)
+                    if date_match:
+                        from datetime import datetime, timedelta
+                        driver_date = datetime(
+                            int(date_match.group(1)),
+                            int(date_match.group(2)),
+                            int(date_match.group(3))
+                        )
+                        # Si el driver tiene mas de 3 meses, recomendar actualizar
+                        age = datetime.now() - driver_date
+                        if age > timedelta(days=90):
+                            result['needs_update'] = True
+                            months_old = age.days // 30
+                            result['driver_age_months'] = months_old
+        except Exception as e:
+            logger.warning(f"Error checking AMD driver date: {e}")
+
+        return result
+
     def get_all_hardware_info(self) -> Dict[str, Any]:
         """Obtiene toda la informacion de hardware y sistema operativo."""
         return {
