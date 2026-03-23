@@ -12,22 +12,101 @@ class HardwareService:
         self.timeout_config = config.timeout_config
 
     def get_gpu_info(self) -> List[Dict[str, Any]]:
+        """Detecta informacion de GPU con VRAM precisa.
+
+        Win32_VideoController.AdapterRAM es uint32 y trunca a 4 GB para GPUs
+        con mas de 4 GB de VRAM. Para obtener el valor real se usan fuentes
+        alternativas en este orden:
+        1. nvidia-smi (NVIDIA GPUs - valor exacto)
+        2. Registro de Windows (qwMemorySize - valor de 64 bits)
+        3. Win32_VideoController como fallback
+        """
         gpus = []
         if is_windows():
+            # Fuente 1: nvidia-smi (mas precisa para NVIDIA)
+            nvidia_vram = self._get_nvidia_vram()
+
+            # Fuente 2: WMI para nombres y drivers + correccion de VRAM
             try:
-                result = run_powershell('Get-WmiObject Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion | ConvertTo-Json', timeout=self.timeout_config.powershell_timeout)
+                result = run_powershell(
+                    'Get-WmiObject Win32_VideoController | Select-Object Name, AdapterRAM, DriverVersion, PNPDeviceID | ConvertTo-Json',
+                    timeout=self.timeout_config.powershell_timeout
+                )
                 if result:
                     data = json.loads(result)
                     if not isinstance(data, list): data = [data]
                     for gpu in data:
-                        adapter_ram = gpu.get('AdapterRAM', 0)
-                        vram_gb = round(int(adapter_ram) / (1024**3), 1) if adapter_ram and adapter_ram > 0 else 0
-                        gpus.append({'Name': gpu.get('Name', 'Desconocido'), 'VRAM_GB': vram_gb, 'DriverVersion': gpu.get('DriverVersion', 'N/A')})
+                        name = gpu.get('Name', 'Desconocido')
+                        driver = gpu.get('DriverVersion', 'N/A')
+                        pnp_id = gpu.get('PNPDeviceID', '')
+
+                        # Determinar VRAM con la mejor fuente disponible
+                        vram_gb = 0
+
+                        # Intentar nvidia-smi primero (si es NVIDIA)
+                        if nvidia_vram and 'nvidia' in name.lower():
+                            vram_gb = nvidia_vram
+                        else:
+                            # Intentar leer del registro (soporta >4 GB)
+                            reg_vram = self._get_vram_from_registry(pnp_id)
+                            if reg_vram > 0:
+                                vram_gb = reg_vram
+
+                        # Fallback: WMI AdapterRAM (trunca a 4 GB)
+                        if vram_gb == 0:
+                            adapter_ram = gpu.get('AdapterRAM', 0)
+                            if adapter_ram and int(adapter_ram) > 0:
+                                vram_gb = round(int(adapter_ram) / (1024**3), 1)
+
+                        gpus.append({
+                            'Name': name,
+                            'VRAM_GB': vram_gb,
+                            'DriverVersion': driver
+                        })
             except (json.JSONDecodeError, Exception) as e:
                 logger.warning(f"GPU info error: {e}")
+
         if not gpus:
             gpus = [{'Name': 'No detectada', 'VRAM_GB': 0, 'DriverVersion': 'N/A'}]
         return gpus
+
+    def _get_nvidia_vram(self) -> float:
+        """Obtiene VRAM total via nvidia-smi (preciso, sin limite de 4 GB)."""
+        try:
+            result = run_command(
+                ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+                timeout=self.timeout_config.nvidia_smi_timeout
+            )
+            if result and result.returncode == 0:
+                vram_mb = int(result.stdout.strip().split('\n')[0])
+                return round(vram_mb / 1024, 1)
+        except Exception as e:
+            logger.debug(f"nvidia-smi VRAM query failed: {e}")
+        return 0
+
+    def _get_vram_from_registry(self, pnp_device_id: str) -> float:
+        """Lee VRAM desde el registro de Windows (qwMemorySize, 64 bits).
+
+        El registro almacena el valor real sin truncar a 4 GB.
+        """
+        if not pnp_device_id:
+            return 0
+        try:
+            # Buscar en las subclaves de video del registro
+            result = run_powershell(
+                'Get-ItemProperty -Path "HKLM:\\SYSTEM\\ControlSet001\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0*" '
+                '-Name HardwareInformation.qwMemorySize -ErrorAction SilentlyContinue | '
+                'Select-Object -ExpandProperty "HardwareInformation.qwMemorySize" | '
+                'Select-Object -First 1',
+                timeout=self.timeout_config.powershell_timeout
+            )
+            if result:
+                vram_bytes = int(result.strip())
+                if vram_bytes > 0:
+                    return round(vram_bytes / (1024**3), 1)
+        except Exception as e:
+            logger.debug(f"Registry VRAM query failed: {e}")
+        return 0
 
     def get_ram_info(self) -> Dict[str, Any]:
         ram_info = {'TotalGB': 0, 'AvailableGB': 0, 'UsedPercent': 0}
