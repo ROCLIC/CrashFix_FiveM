@@ -1,6 +1,7 @@
-// FiveM Diagnostic Tool v6.1 PRO - JavaScript (Fixed)
+// FiveM Diagnostic Tool v6.1 PRO - JavaScript
 
-// Estado global
+// ============= ESTADO GLOBAL =============
+
 let criticalIssues = [];
 let warnings = [];
 let repairs = [];
@@ -34,6 +35,14 @@ function clearConsole() {
     addConsoleLine('Consola limpiada', 'info');
 }
 
+function resetDiagnosticState() {
+    criticalIssues = [];
+    warnings = [];
+    recommendations = [];
+    updateCounters();
+    updateRecommendations();
+}
+
 function updateCounters() {
     document.getElementById('critical-count').textContent = criticalIssues.length;
     document.getElementById('warnings-count').textContent = warnings.length;
@@ -46,10 +55,10 @@ function updateCounters() {
 function updateRepairsList() {
     const container = document.getElementById('repairs-list');
     if (repairs.length === 0) {
-        container.innerHTML = '<div class="repair-item empty">Ninguna reparación aplicada aún</div>';
+        container.innerHTML = '<div class="repair-item empty">Ninguna reparacion aplicada aun</div>';
     } else {
         container.innerHTML = repairs.map(r =>
-            `<div class="repair-item">✓ ${r}</div>`
+            `<div class="repair-item">&check; ${r}</div>`
         ).join('');
     }
 }
@@ -57,10 +66,10 @@ function updateRepairsList() {
 function updateRecommendations() {
     const container = document.getElementById('recommendations');
     if (recommendations.length === 0) {
-        container.innerHTML = '<div class="recommendation-item empty">Ejecuta un diagnóstico para ver recomendaciones</div>';
+        container.innerHTML = '<div class="recommendation-item empty">Ejecuta un diagnostico para ver recomendaciones</div>';
     } else {
         container.innerHTML = recommendations.map(r =>
-            `<div class="recommendation-item">→ ${r}</div>`
+            `<div class="recommendation-item">&rarr; ${r}</div>`
         ).join('');
     }
 }
@@ -87,7 +96,7 @@ async function apiCall(endpoint, method = 'POST', data = null) {
     }
 }
 
-// ============= PROCESSRESULTS (FIX: lee las claves correctas de la respuesta) =============
+// ============= PROCESS RESULTS =============
 
 function processResults(result) {
     if (!result) return;
@@ -118,14 +127,14 @@ function processResults(result) {
         const critCount = summary.CriticalIssues || 0;
         const warnCount = summary.Warnings || 0;
 
-        for (let i = 0; i < critCount; i++) criticalIssues.push('Problema crítico detectado');
+        for (let i = 0; i < critCount; i++) criticalIssues.push('Problema critico detectado');
         for (let i = 0; i < warnCount; i++) warnings.push('Advertencia detectada');
 
         const recs = summary.Recommendations || [];
         recs.forEach(r => { if (!recommendations.includes(r)) recommendations.push(r); });
 
         const reps = summary.RepairsApplied || [];
-        reps.forEach(r => repairs.push(r));
+        reps.forEach(r => { if (!repairs.includes(r)) repairs.push(r); });
     }
 
     updateCounters();
@@ -133,17 +142,17 @@ function processResults(result) {
     updateRecommendations();
 }
 
-// ============= ACCIONES RÁPIDAS =============
+// ============= ACCIONES RAPIDAS =============
 
 async function runQuickRepair() {
-    showLoading('Ejecutando reparación rápida...');
-    addConsoleLine('Iniciando reparación rápida...', 'info');
+    showLoading('Ejecutando reparacion rapida...');
+    addConsoleLine('Iniciando reparacion rapida...', 'info');
     const result = await apiCall('repair/quick');
     if (result) {
-        addConsoleLine('✓ Reparación rápida completada', 'success');
+        addConsoleLine('&check; Reparacion rapida completada', 'success');
         (result.repairs_applied || []).forEach(r => {
-            repairs.push(r);
-            addConsoleLine(`  ✓ ${r}`, 'success');
+            if (!repairs.includes(r)) repairs.push(r);
+            addConsoleLine(`  &check; ${r}`, 'success');
         });
         (result.recommendations || []).forEach(r => {
             if (!recommendations.includes(r)) recommendations.push(r);
@@ -156,19 +165,21 @@ async function runQuickRepair() {
 }
 
 async function runCompleteDiagnostic() {
-    showLoading('Ejecutando diagnóstico completo...');
-    addConsoleLine('Iniciando diagnóstico completo...', 'info');
+    showLoading('Ejecutando diagnostico completo...');
+    addConsoleLine('Iniciando diagnostico completo...', 'info');
+    resetDiagnosticState();
     const result = await apiCall('diagnostic/complete');
     if (result) {
         processResults(result);
-        addConsoleLine('✓ Diagnóstico completo finalizado', 'success');
+        addConsoleLine('&check; Diagnostico completo finalizado', 'success');
     }
     hideLoading();
 }
 
 async function runFullDiagnosticV2() {
-    showLoading('Ejecutando diagnóstico PRO v2.0...');
-    addConsoleLine('Iniciando diagnóstico PRO v2.0 (10 fases)...', 'info');
+    showLoading('Ejecutando diagnostico PRO v2.0...');
+    addConsoleLine('Iniciando diagnostico PRO v2.0 (10 fases)...', 'info');
+    resetDiagnosticState();
     const result = await apiCall('diagnostic/full/v2');
     if (result) {
         (result.phases || []).forEach(phase => {
@@ -180,32 +191,33 @@ async function runFullDiagnosticV2() {
             addConsoleLine(`Benchmark: ${result.benchmark.overall_score}/100 (${result.benchmark.rating})`, 'success');
             updateCounters();
         }
-        addConsoleLine('✓ Diagnóstico PRO v2.0 completado', 'success');
+        addConsoleLine('&check; Diagnostico PRO v2.0 completado', 'success');
     }
     hideLoading();
 }
 
 async function runDiagnoseAndRepair() {
-    showLoading('Ejecutando diagnóstico y reparación...');
-    addConsoleLine('Iniciando diagnóstico + reparación automática...', 'info');
+    showLoading('Ejecutando diagnostico y reparacion...');
+    addConsoleLine('Iniciando diagnostico + reparacion automatica...', 'info');
+    resetDiagnosticState();
     const diagResult = await apiCall('diagnostic/complete');
     if (diagResult) processResults(diagResult);
-    addConsoleLine('Aplicando reparaciones automáticas...', 'info');
+    addConsoleLine('Aplicando reparaciones automaticas...', 'info');
     const repairResult = await apiCall('repair/quick');
     if (repairResult && repairResult.repairs_applied) {
         repairResult.repairs_applied.forEach(r => {
-            repairs.push(r);
-            addConsoleLine(`  ✓ ${r}`, 'success');
+            if (!repairs.includes(r)) repairs.push(r);
+            addConsoleLine(`  &check; ${r}`, 'success');
         });
     }
     updateCounters();
     updateRepairsList();
     updateRecommendations();
-    addConsoleLine('✓ Diagnóstico y reparación completados', 'success');
+    addConsoleLine('&check; Diagnostico y reparacion completados', 'success');
     hideLoading();
 }
 
-// ============= DIAGNÓSTICO =============
+// ============= DIAGNOSTICO =============
 
 async function checkRequirements() {
     showLoading('Verificando requisitos del sistema...');
@@ -214,7 +226,7 @@ async function checkRequirements() {
     if (result) {
         addConsoleLine(`Estado: ${result.status}`, result.status === 'ok' ? 'success' : 'warn');
         Object.entries(result.checks || {}).forEach(([key, check]) => {
-            const icon = check.passed ? '✓' : '✗';
+            const icon = check.passed ? '&check;' : '&cross;';
             addConsoleLine(`  ${icon} ${key}: ${check.current} (req: ${check.required})`,
                 check.passed ? 'success' : 'error');
             if (!check.passed) criticalIssues.push(`${key}: ${check.current}`);
@@ -230,7 +242,7 @@ async function checkRequirements() {
 
 async function detectGTA() {
     showLoading('Detectando GTA V y FiveM...');
-    addConsoleLine('Buscando instalación de GTA V...', 'info');
+    addConsoleLine('Buscando instalacion de GTA V...', 'info');
 
     const [gtaResult, fivemResult] = await Promise.all([
         apiCall('detect/gtav'),
@@ -240,11 +252,11 @@ async function detectGTA() {
     if (gtaResult) {
         const gtaEl = document.getElementById('gta-status');
         if (gtaResult.Path) {
-            addConsoleLine(`✓ GTA V encontrado: ${gtaResult.Path}`, 'success');
+            addConsoleLine(`&check; GTA V encontrado: ${gtaResult.Path}`, 'success');
             gtaEl.textContent = 'Encontrado';
             gtaEl.style.color = 'var(--success)';
         } else {
-            addConsoleLine('✗ GTA V no encontrado', 'error');
+            addConsoleLine('&cross; GTA V no encontrado', 'error');
             gtaEl.textContent = 'No encontrado';
             gtaEl.style.color = 'var(--error)';
             criticalIssues.push('GTA V no encontrado');
@@ -254,11 +266,11 @@ async function detectGTA() {
     if (fivemResult) {
         const fivemEl = document.getElementById('fivem-status');
         if (fivemResult.Found) {
-            addConsoleLine('✓ FiveM instalado', 'success');
+            addConsoleLine('&check; FiveM instalado', 'success');
             fivemEl.textContent = 'Instalado';
             fivemEl.style.color = 'var(--success)';
         } else {
-            addConsoleLine('✗ FiveM no encontrado', 'warn');
+            addConsoleLine('&cross; FiveM no encontrado', 'warn');
             fivemEl.textContent = 'No encontrado';
             fivemEl.style.color = 'var(--warning)';
         }
@@ -275,10 +287,10 @@ async function verifyGTAV() {
     if (result) {
         addConsoleLine(`Archivos verificados: ${result.files_ok}/${result.files_checked}`, 'info');
         (result.files_missing || []).forEach(f => {
-            addConsoleLine(`  ⚠ Faltante: ${f}`, 'warn');
+            addConsoleLine(`  Faltante: ${f}`, 'warn');
             warnings.push(`Archivo faltante: ${f}`);
         });
-        addConsoleLine(result.status === 'ok' ? '✓ Integridad OK' : '⚠ Problemas encontrados',
+        addConsoleLine(result.status === 'ok' ? '&check; Integridad OK' : 'Problemas encontrados',
             result.status === 'ok' ? 'success' : 'warn');
         if (result.status !== 'ok') {
             recommendations.push('Verifica la integridad de archivos desde el launcher');
@@ -291,7 +303,7 @@ async function verifyGTAV() {
 
 async function analyzeGPU() {
     showLoading('Analizando GPU...');
-    addConsoleLine('Analizando tarjeta gráfica...', 'info');
+    addConsoleLine('Analizando tarjeta grafica...', 'info');
     const result = await apiCall('detect/gpu');
     if (result && result.length > 0) {
         const gpu = result[0];
@@ -330,7 +342,7 @@ async function analyzeCPU() {
     addConsoleLine('Analizando procesador...', 'info');
     const result = await apiCall('detect/cpu');
     if (result) {
-        addConsoleLine(`CPU: ${result.Name} | Núcleos: ${result.Cores} | Hilos: ${result.Threads}`, 'info');
+        addConsoleLine(`CPU: ${result.Name} | Nucleos: ${result.Cores} | Hilos: ${result.Threads}`, 'info');
         document.getElementById('cpu-info').textContent = result.Name;
     }
     hideLoading();
@@ -343,12 +355,12 @@ async function checkTemperatures() {
     if (result) {
         const cpuTemp = result.cpu && result.cpu.current;
         const gpuTemp = result.gpu && result.gpu.current;
-        addConsoleLine(`CPU: ${cpuTemp ? cpuTemp + '°C' : 'N/A'} | GPU: ${gpuTemp ? gpuTemp + '°C' : 'N/A'}`, 'info');
-        document.getElementById('cpu-temp').textContent = cpuTemp ? `${cpuTemp}°C` : 'N/A';
-        document.getElementById('gpu-temp').textContent = gpuTemp ? `${gpuTemp}°C` : 'N/A';
+        addConsoleLine(`CPU: ${cpuTemp ? cpuTemp + ' C' : 'N/A'} | GPU: ${gpuTemp ? gpuTemp + ' C' : 'N/A'}`, 'info');
+        document.getElementById('cpu-temp').textContent = cpuTemp ? `${cpuTemp} C` : 'N/A';
+        document.getElementById('gpu-temp').textContent = gpuTemp ? `${gpuTemp} C` : 'N/A';
         (result.warnings || []).forEach(w => {
             warnings.push(w);
-            addConsoleLine(`⚠ ${w}`, 'warn');
+            addConsoleLine(`${w}`, 'warn');
         });
         updateCounters();
     }
@@ -356,8 +368,8 @@ async function checkTemperatures() {
 }
 
 async function testNetwork() {
-    showLoading('Probando conexión de red...');
-    addConsoleLine('Probando conexión de red...', 'info');
+    showLoading('Probando conexion de red...');
+    addConsoleLine('Probando conexion de red...', 'info');
     const result = await apiCall('detect/network');
     if (result) {
         addConsoleLine(`Estado: ${result.Status} | Ping: ${result.Ping}ms`,
@@ -406,11 +418,11 @@ async function analyzeLogs() {
 }
 
 async function analyzeErrorsAdvanced() {
-    showLoading('Análisis avanzado de errores...');
-    addConsoleLine('Realizando análisis avanzado de errores...', 'info');
+    showLoading('Analisis avanzado de errores...');
+    addConsoleLine('Realizando analisis avanzado de errores...', 'info');
     const result = await apiCall('analyze/errors/advanced');
     if (result) {
-        addConsoleLine(`Total: ${result.total_errors} | Críticos: ${result.critical} | Altos: ${result.high}`, 'info');
+        addConsoleLine(`Total: ${result.total_errors} | Criticos: ${result.critical} | Altos: ${result.high}`, 'info');
         (result.errors_found || []).forEach(err => {
             addConsoleLine(`[${err.severity.toUpperCase()}] ${err.description}`,
                 err.severity === 'critical' ? 'error' : 'warn');
@@ -448,7 +460,7 @@ async function detectMods() {
     const result = await apiCall('detect/mods');
     if (result) {
         if (result.ModsFound && result.ModsFound.length > 0) {
-            addConsoleLine(`⚠ Mods encontrados: ${result.ModsFound.length}`, 'warn');
+            addConsoleLine(`Mods encontrados: ${result.ModsFound.length}`, 'warn');
             result.ModsFound.forEach(mod => {
                 addConsoleLine(`  - ${mod}`, 'warn');
                 warnings.push(`Mod detectado: ${mod}`);
@@ -456,7 +468,7 @@ async function detectMods() {
             if (!recommendations.includes('Desactiva los mods antes de jugar FiveM'))
                 recommendations.push('Desactiva los mods antes de jugar FiveM');
         } else {
-            addConsoleLine('✓ No se encontraron mods', 'success');
+            addConsoleLine('&check; No se encontraron mods', 'success');
         }
         updateCounters();
         updateRecommendations();
@@ -470,13 +482,13 @@ async function detectConflicts() {
     const result = await apiCall('detect/conflicts');
     if (result) {
         if (result.ConflictsFound && result.ConflictsFound.length > 0) {
-            addConsoleLine(`⚠ Software conflictivo: ${result.ConflictsFound.length}`, 'warn');
+            addConsoleLine(`Software conflictivo: ${result.ConflictsFound.length}`, 'warn');
             result.ConflictsFound.forEach(c => {
                 addConsoleLine(`  - ${c}`, 'warn');
                 warnings.push(`Software conflictivo: ${c}`);
             });
         } else {
-            addConsoleLine('✓ No se encontró software conflictivo', 'success');
+            addConsoleLine('&check; No se encontro software conflictivo', 'success');
         }
         updateCounters();
     }
@@ -489,13 +501,13 @@ async function detectOverlays() {
     const result = await apiCall('detect/overlays');
     if (result) {
         if (result.overlays_found && result.overlays_found.length > 0) {
-            addConsoleLine(`⚠ Overlays: ${result.overlays_found.length}`, 'warn');
+            addConsoleLine(`Overlays: ${result.overlays_found.length}`, 'warn');
             result.overlays_found.forEach(o => {
                 warnings.push(`Overlay: ${o.name}`);
                 addConsoleLine(`  - ${o.name}`, 'warn');
             });
         } else {
-            addConsoleLine('✓ No se encontraron overlays conflictivos', 'success');
+            addConsoleLine('&check; No se encontraron overlays conflictivos', 'success');
         }
         (result.recommendations || []).forEach(r => {
             if (!recommendations.includes(r)) recommendations.push(r);
@@ -541,7 +553,7 @@ async function checkVCRedist() {
         document.getElementById('vcredist-status').textContent = result.status === 'complete' ? 'OK' : 'Incompleto';
         (result.missing || []).forEach(m => {
             warnings.push(`Falta: ${m}`);
-            addConsoleLine(`  ⚠ Falta: ${m}`, 'warn');
+            addConsoleLine(`  Falta: ${m}`, 'warn');
         });
         (result.recommendations || []).forEach(r => {
             if (!recommendations.includes(r)) recommendations.push(r);
@@ -560,7 +572,7 @@ async function runBenchmark() {
         benchmarkResult = result;
         addConsoleLine(`Benchmark: ${result.overall_score}/100 (${result.rating})`, 'success');
         addConsoleLine(`  CPU: ${result.cpu_score} | RAM: ${result.memory_score} | Disco: ${result.disk_score}`, 'info');
-        addConsoleLine(`FiveM Ready: ${result.fivem_ready ? 'Sí ✓' : 'No ✗'}`,
+        addConsoleLine(`FiveM Ready: ${result.fivem_ready ? 'Si' : 'No'}`,
             result.fivem_ready ? 'success' : 'warn');
         updateCounters();
     }
@@ -574,7 +586,7 @@ async function killProcesses() {
     addConsoleLine('Terminando procesos de FiveM...', 'info');
     const result = await apiCall('repair/kill');
     if (result && result.success) {
-        addConsoleLine('✓ Procesos terminados correctamente', 'success');
+        addConsoleLine('&check; Procesos terminados correctamente', 'success');
         repairs.push('Procesos de FiveM terminados');
         updateCounters(); updateRepairsList();
     }
@@ -582,24 +594,24 @@ async function killProcesses() {
 }
 
 async function clearCacheSelective() {
-    showLoading('Limpiando caché selectiva...');
-    addConsoleLine('Limpiando caché selectiva de FiveM...', 'info');
+    showLoading('Limpiando cache selectiva...');
+    addConsoleLine('Limpiando cache selectiva de FiveM...', 'info');
     const result = await apiCall('repair/cache/selective');
     if (result) {
-        addConsoleLine(`✓ Caché limpiada: ${result.cleaned_mb || 0} MB liberados`, 'success');
-        repairs.push('Caché selectiva limpiada');
+        addConsoleLine(`&check; Cache limpiada: ${result.cleaned_mb || 0} MB liberados`, 'success');
+        repairs.push('Cache selectiva limpiada');
         updateCounters(); updateRepairsList();
     }
     hideLoading();
 }
 
 async function clearCacheComplete() {
-    showLoading('Limpiando caché completa...');
-    addConsoleLine('Limpiando caché completa de FiveM...', 'info');
+    showLoading('Limpiando cache completa...');
+    addConsoleLine('Limpiando cache completa de FiveM...', 'info');
     const result = await apiCall('repair/cache/complete');
     if (result) {
-        addConsoleLine(`✓ Caché completa limpiada: ${result.cleaned_mb || 0} MB`, 'success');
-        repairs.push('Caché completa limpiada');
+        addConsoleLine(`&check; Cache completa limpiada: ${result.cleaned_mb || 0} MB`, 'success');
+        repairs.push('Cache completa limpiada');
         updateCounters(); updateRepairsList();
     }
     hideLoading();
@@ -610,7 +622,7 @@ async function removeDLLs() {
     addConsoleLine('Eliminando DLLs conflictivas...', 'info');
     const result = await apiCall('repair/dlls');
     if (result && result.success) {
-        addConsoleLine('✓ DLLs conflictivas procesadas', 'success');
+        addConsoleLine('&check; DLLs conflictivas procesadas', 'success');
         repairs.push('DLLs conflictivas eliminadas');
         updateCounters(); updateRepairsList();
     }
@@ -624,8 +636,8 @@ async function cleanV8DLLs() {
     if (result) {
         const removed = result.removed || [];
         addConsoleLine(removed.length > 0
-            ? `✓ ${removed.length} DLLs eliminadas`
-            : '✓ No se encontraron v8 DLLs conflictivas', 'success');
+            ? `&check; ${removed.length} DLLs eliminadas`
+            : '&check; No se encontraron v8 DLLs conflictivas', 'success');
         if (removed.length > 0) { repairs.push('v8 DLLs eliminadas'); updateRepairsList(); }
         updateCounters();
     }
@@ -637,7 +649,7 @@ async function cleanROSFiles() {
     addConsoleLine('Limpiando archivos de Rockstar Online Services...', 'info');
     const result = await apiCall('repair/rosfiles');
     if (result && result.success) {
-        addConsoleLine('✓ Archivos ROS limpiados', 'success');
+        addConsoleLine('&check; Archivos ROS limpiados', 'success');
         repairs.push('Archivos ROS limpiados');
         updateCounters(); updateRepairsList();
     }
@@ -646,11 +658,11 @@ async function cleanROSFiles() {
 
 async function repairROS() {
     showLoading('Reparando ROS...');
-    addConsoleLine('Reparando autenticación de Rockstar...', 'info');
+    addConsoleLine('Reparando autenticacion de Rockstar...', 'info');
     const result = await apiCall('repair/ros');
     if (result && result.success) {
-        addConsoleLine('✓ Autenticación ROS reparada', 'success');
-        repairs.push('Autenticación ROS reparada');
+        addConsoleLine('&check; Autenticacion ROS reparada', 'success');
+        repairs.push('Autenticacion ROS reparada');
         updateCounters(); updateRepairsList();
     }
     hideLoading();
@@ -661,7 +673,7 @@ async function disableMods() {
     addConsoleLine('Desactivando mods de GTA V...', 'info');
     const result = await apiCall('repair/mods/disable');
     if (result && result.success) {
-        addConsoleLine(`✓ ${result.disabled_count || 0} mods desactivados`, 'success');
+        addConsoleLine(`&check; ${result.disabled_count || 0} mods desactivados`, 'success');
         repairs.push('Mods desactivados');
         updateCounters(); updateRepairsList();
     }
@@ -673,21 +685,21 @@ async function closeConflicts() {
     addConsoleLine('Cerrando software conflictivo...', 'info');
     const result = await apiCall('repair/conflicts/close');
     if (result && result.success) {
-        addConsoleLine('✓ Software conflictivo cerrado', 'success');
+        addConsoleLine('&check; Software conflictivo cerrado', 'success');
         repairs.push('Software conflictivo cerrado');
         updateCounters(); updateRepairsList();
     }
     hideLoading();
 }
 
-// ============= OPTIMIZACIÓN =============
+// ============= OPTIMIZACION =============
 
 async function configureFirewall() {
     showLoading('Configurando firewall...');
     addConsoleLine('Configurando reglas de firewall para FiveM...', 'info');
     const result = await apiCall('optimize/firewall');
     if (result && result.success) {
-        addConsoleLine('✓ Reglas de firewall configuradas', 'success');
+        addConsoleLine('&check; Reglas de firewall configuradas', 'success');
         repairs.push('Firewall configurado');
         updateCounters(); updateRepairsList();
     }
@@ -699,7 +711,7 @@ async function configureDefender() {
     addConsoleLine('Configurando exclusiones de Windows Defender...', 'info');
     const result = await apiCall('optimize/defender');
     if (result && result.success) {
-        addConsoleLine('✓ Exclusiones de Defender configuradas', 'success');
+        addConsoleLine('&check; Exclusiones de Defender configuradas', 'success');
         repairs.push('Exclusiones de Defender configuradas');
         updateCounters(); updateRepairsList();
     }
@@ -707,28 +719,30 @@ async function configureDefender() {
 }
 
 async function optimizePageFile() {
-    showLoading('Optimizando paginación...');
-    addConsoleLine('Optimizando archivo de paginación...', 'info');
+    showLoading('Optimizando paginacion...');
+    addConsoleLine('Optimizando archivo de paginacion...', 'info');
     const result = await apiCall('optimize/pagefile');
     if (result && result.success) {
-        addConsoleLine(`✓ Paginación: ${result.recommended_mb} MB recomendado`, 'success');
-        recommendations.push(`Configura el archivo de paginación a ${result.recommended_mb} MB`);
+        addConsoleLine(`&check; Paginacion: ${result.recommended_mb} MB recomendado`, 'success');
+        if (!recommendations.includes(`Configura el archivo de paginacion a ${result.recommended_mb} MB`)) {
+            recommendations.push(`Configura el archivo de paginacion a ${result.recommended_mb} MB`);
+        }
         updateRecommendations();
     }
     hideLoading();
 }
 
 async function optimizeGraphics() {
-    showLoading('Optimizando gráficos...');
-    addConsoleLine('Optimizando configuración gráfica...', 'info');
+    showLoading('Optimizando graficos...');
+    addConsoleLine('Optimizando configuracion grafica...', 'info');
     const result = await apiCall('optimize/graphics');
     if (result) {
         if (result.success) {
-            addConsoleLine('✓ Configuración gráfica optimizada', 'success');
-            repairs.push('Gráficos optimizados');
+            addConsoleLine('&check; Configuracion grafica optimizada', 'success');
+            repairs.push('Graficos optimizados');
             updateCounters(); updateRepairsList();
         } else {
-            addConsoleLine(`⚠ ${result.error || 'Error optimizando gráficos'}`, 'warn');
+            addConsoleLine(`${result.error || 'Error optimizando graficos'}`, 'warn');
         }
     }
     hideLoading();
@@ -736,13 +750,15 @@ async function optimizeGraphics() {
 
 async function configureTextureBudget() {
     showLoading('Configurando Texture Budget...');
-    addConsoleLine('Configurando Extended Texture Budget automáticamente...', 'info');
+    addConsoleLine('Configurando Extended Texture Budget automaticamente...', 'info');
     const result = await apiCall('optimize/texturebudget');
     if (result) {
-        addConsoleLine(`VRAM: ${result.vram_detected}GB → Texture Budget: ${result.recommended_budget}%`, 'info');
+        addConsoleLine(`VRAM: ${result.vram_detected}GB -> Texture Budget: ${result.recommended_budget}%`, 'info');
         if (result.success) {
             repairs.push(`Texture Budget: ${result.recommended_budget}%`);
-            recommendations.push(`Ajusta "Extended Texture Budget" a ${result.recommended_budget}% en FiveM`);
+            if (!recommendations.includes(`Ajusta "Extended Texture Budget" a ${result.recommended_budget}% en FiveM`)) {
+                recommendations.push(`Ajusta "Extended Texture Budget" a ${result.recommended_budget}% en FiveM`);
+            }
             updateCounters(); updateRepairsList(); updateRecommendations();
         }
     }
@@ -755,12 +771,14 @@ async function optimizeWindows() {
     const result = await apiCall('optimize/windows');
     if (result) {
         (result.optimizations || []).forEach(opt => {
-            addConsoleLine(`✓ ${opt}`, 'success');
+            addConsoleLine(`&check; ${opt}`, 'success');
             repairs.push(opt);
         });
-        (result.failed || []).forEach(f => addConsoleLine(`⚠ ${f}`, 'warn'));
+        (result.failed || []).forEach(f => addConsoleLine(`${f}`, 'warn'));
         if (result.requires_restart) {
-            recommendations.push('Reinicia el PC para aplicar todas las optimizaciones');
+            if (!recommendations.includes('Reinicia el PC para aplicar todas las optimizaciones')) {
+                recommendations.push('Reinicia el PC para aplicar todas las optimizaciones');
+            }
             updateRecommendations();
         }
         updateCounters(); updateRepairsList();
@@ -776,7 +794,7 @@ async function optimizeDNS() {
         (result.dns_test_results || []).forEach(dns => {
             addConsoleLine(`${dns.name}: ${dns.latency_ms}ms`, dns.status === 'ok' ? 'success' : 'info');
         });
-        if (result.best_dns) addConsoleLine(`✓ Mejor DNS: ${result.best_dns}`, 'success');
+        if (result.best_dns) addConsoleLine(`&check; Mejor DNS: ${result.best_dns}`, 'success');
         if (result.recommendation) {
             if (!recommendations.includes(result.recommendation))
                 recommendations.push(result.recommendation);
@@ -796,9 +814,9 @@ function showDetailsModal(type) {
 
     switch (type) {
         case 'critical':
-            title.textContent = 'Problemas Críticos';
+            title.textContent = 'Problemas Criticos';
             content = criticalIssues.length === 0
-                ? '<p class="no-items">No hay problemas críticos detectados</p>'
+                ? '<p class="no-items">No hay problemas criticos detectados</p>'
                 : `<ul class="details-list critical">${criticalIssues.map(i => `<li>${i}</li>`).join('')}</ul>`;
             break;
         case 'warnings':
@@ -811,7 +829,7 @@ function showDetailsModal(type) {
             title.textContent = 'Reparaciones Aplicadas';
             content = repairs.length === 0
                 ? '<p class="no-items">No se han aplicado reparaciones</p>'
-                : `<ul class="details-list success">${repairs.map(r => `<li>✓ ${r}</li>`).join('')}</ul>`;
+                : `<ul class="details-list success">${repairs.map(r => `<li>&check; ${r}</li>`).join('')}</ul>`;
             break;
         case 'benchmark':
             title.textContent = 'Resultados del Benchmark';
@@ -836,7 +854,7 @@ function showDetailsModal(type) {
                         }).join('')}
                     </div>
                     <p class="fivem-ready ${benchmarkResult.fivem_ready ? 'yes' : 'no'}">
-                        FiveM Ready: ${benchmarkResult.fivem_ready ? '✓ Sí' : '✗ No'}
+                        FiveM Ready: ${benchmarkResult.fivem_ready ? '&check; Si' : '&cross; No'}
                     </p>
                 </div>`;
             }
@@ -872,7 +890,7 @@ async function showBackupsModal() {
             <div class="backup-item">
                 <div class="backup-info">
                     <span class="backup-name">${b.name}</span>
-                    <span class="backup-meta"><span class="backup-category">${b.category}</span>${b.date} — ${b.size_mb} MB</span>
+                    <span class="backup-meta"><span class="backup-category">${b.category}</span>${b.date} &mdash; ${b.size_mb} MB</span>
                 </div>
                 <button class="btn-restore" onclick="restoreBackup('${b.path.replace(/'/g, "\\'")}')">Restaurar</button>
             </div>`).join('');
@@ -881,7 +899,6 @@ async function showBackupsModal() {
     }
 }
 
-// FIX: closeModal usa 'active' (no display:none) para coincidir con el CSS
 function closeModal(modalId) {
     document.getElementById(modalId).classList.remove('active');
 }
@@ -901,7 +918,7 @@ async function runAdvancedRepair() {
     document.querySelectorAll('#repair-options input[type="checkbox"]:checked').forEach(cb => {
         selected.push(parseInt(cb.value));
     });
-    if (selected.length === 0) { alert('Selecciona al menos una reparación'); return; }
+    if (selected.length === 0) { alert('Selecciona al menos una reparacion'); return; }
 
     closeModal('advanced-repair-modal');
     showLoading('Ejecutando reparaciones avanzadas...');
@@ -911,10 +928,10 @@ async function runAdvancedRepair() {
     if (result) {
         (result.results || []).forEach(r => {
             if (r.success) {
-                addConsoleLine(`✓ ${r.name}`, 'success');
-                repairs.push(r.name);
+                addConsoleLine(`&check; ${r.name}`, 'success');
+                if (!repairs.includes(r.name)) repairs.push(r.name);
             } else {
-                addConsoleLine(`✗ ${r.name}: ${r.error || 'Error'}`, 'error');
+                addConsoleLine(`&cross; ${r.name}: ${r.error || 'Error'}`, 'error');
             }
         });
         updateCounters();
@@ -923,7 +940,6 @@ async function runAdvancedRepair() {
     hideLoading();
 }
 
-// FIX: selectProfile recibe el elemento clickado como parámetro
 function selectProfile(profile, el) {
     selectedProfile = profile;
     document.querySelectorAll('.profile-card').forEach(card => card.classList.remove('selected'));
@@ -936,7 +952,7 @@ async function applySelectedProfile() {
     addConsoleLine(`Aplicando perfil de rendimiento: ${selectedProfile}`, 'info');
     const result = await apiCall('profiles/apply', 'POST', { profile: selectedProfile });
     if (result && result.success) {
-        addConsoleLine('✓ Perfil aplicado correctamente', 'success');
+        addConsoleLine('&check; Perfil aplicado correctamente', 'success');
         repairs.push(`Perfil ${selectedProfile} aplicado`);
         updateCounters(); updateRepairsList();
     }
@@ -951,10 +967,10 @@ async function saveCitizenFXConfig() {
         EnableFullMemoryDump: document.getElementById('enable-dumps').checked ? '1' : '0'
     };
     closeModal('citizenfx-modal');
-    showLoading('Guardando configuración...');
+    showLoading('Guardando configuracion...');
     const result = await apiCall('config/citizenfx', 'POST', settings);
     if (result && result.success) {
-        addConsoleLine('✓ Configuración de CitizenFX.ini guardada', 'success');
+        addConsoleLine('&check; Configuracion de CitizenFX.ini guardada', 'success');
         repairs.push('CitizenFX.ini configurado');
         updateCounters(); updateRepairsList();
     }
@@ -969,24 +985,24 @@ async function saveLaunchParams() {
     if (document.getElementById('param-high').checked) params.push('-high');
 
     closeModal('launch-params-modal');
-    showLoading('Guardando parámetros...');
+    showLoading('Guardando parametros...');
     const result = await apiCall('config/launchparams', 'POST', { parameters: params });
     if (result && result.success) {
-        addConsoleLine(`✓ Parámetros guardados: ${params.join(' ')}`, 'success');
-        repairs.push('Parámetros de lanzamiento configurados');
+        addConsoleLine(`&check; Parametros guardados: ${params.join(' ')}`, 'success');
+        repairs.push('Parametros de lanzamiento configurados');
         updateCounters(); updateRepairsList();
     }
     hideLoading();
 }
 
 async function restoreBackup(path) {
-    if (!confirm('¿Estás seguro de que deseas restaurar este backup?')) return;
+    if (!confirm('Estas seguro de que deseas restaurar este backup?')) return;
     showLoading('Restaurando backup...');
     const result = await apiCall('backups/restore', 'POST', { path });
     if (result && result.success) {
-        addConsoleLine('✓ Backup restaurado correctamente', 'success');
+        addConsoleLine('&check; Backup restaurado correctamente', 'success');
     } else {
-        addConsoleLine('✗ Error restaurando backup: ' + (result && result.error || 'desconocido'), 'error');
+        addConsoleLine('&cross; Error restaurando backup: ' + (result && result.error || 'desconocido'), 'error');
     }
     hideLoading();
 }
@@ -996,19 +1012,18 @@ async function generateReport() {
     addConsoleLine('Generando reporte HTML...', 'info');
     const result = await apiCall('report/generate');
     if (result && result.success) {
-        addConsoleLine(`✓ Reporte generado: ${result.path}`, 'success');
-        // FIX: pasar path codificado como query param al endpoint
+        addConsoleLine(`&check; Reporte generado: ${result.path}`, 'success');
         window.open(`/api/report/view?path=${encodeURIComponent(result.path)}`, '_blank');
     }
     hideLoading();
 }
 
 async function exportConfig() {
-    showLoading('Exportando configuración...');
-    addConsoleLine('Exportando configuración...', 'info');
+    showLoading('Exportando configuracion...');
+    addConsoleLine('Exportando configuracion...', 'info');
     const result = await apiCall('config/export');
     if (result && result.success) {
-        addConsoleLine(`✓ Configuración exportada: ${result.path}`, 'success');
+        addConsoleLine(`&check; Configuracion exportada: ${result.path}`, 'success');
     }
     hideLoading();
 }
@@ -1031,7 +1046,7 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Inicialización
+// Inicializacion
 document.addEventListener('DOMContentLoaded', function() {
     refreshStatus();
 });

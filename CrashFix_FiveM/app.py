@@ -51,6 +51,7 @@ app.secret_key = server_config.secret_key
 
 @app.after_request
 def add_security_headers(response):
+    """Agrega cabeceras de seguridad a todas las respuestas."""
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -59,6 +60,7 @@ def add_security_headers(response):
 
 
 def get_current_session() -> DiagnosticSession:
+    """Obtiene o crea la sesión de diagnóstico actual."""
     session_id = session.get('diagnostic_session_id')
     sm = get_session_manager()
     if session_id:
@@ -71,13 +73,14 @@ def get_current_session() -> DiagnosticSession:
 
 
 def api_error_handler(f):
+    """Decorador para manejar errores en endpoints de la API."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         try:
             return f(*args, **kwargs)
         except ValueError as e:
             logger.warning(f"Validation error in {f.__name__}: {e}")
-            return jsonify({'error': 'Datos inválidos', 'details': str(e)}), 400
+            return jsonify({'error': 'Datos invalidos', 'details': str(e)}), 400
         except PermissionError as e:
             logger.error(f"Permission error in {f.__name__}: {e}")
             return jsonify({'error': 'Permisos insuficientes', 'details': str(e)}), 403
@@ -91,10 +94,9 @@ def api_error_handler(f):
 
 
 # ============= CONTENEDOR DE CONFIG PARA SERVICIOS =============
-# FIX: Renombrado de 'service_config' a 'svc_cfg' para evitar colisión con server_config
 
 class ServiceConfigContainer:
-    """Contenedor de configuración para servicios — evita colisión con server_config."""
+    """Contenedor de configuracion para servicios — evita colision con server_config."""
     def __init__(self):
         self.system_paths = system_paths
         self.diagnostic_config = diagnostic_config
@@ -107,9 +109,73 @@ class ServiceConfigContainer:
 svc_cfg = ServiceConfigContainer()
 
 
-# ============= INICIALIZACIÓN =============
+# ============= HELPERS DE DIAGNOSTICO =============
+
+def _count_issues_from_diagnostics(report, errors_info, hardware_info, network_info,
+                                   mods_info=None, conflicts_info=None):
+    """
+    Analiza los resultados de diagnostico y actualiza los contadores
+    de problemas criticos y advertencias del reporte.
+    """
+    # Contar errores criticos y advertencias desde los errores de FiveM
+    for err in errors_info.get('Errors', []):
+        severity = err.get('Severity', 'medium')
+        if severity == 'critical':
+            report.increment_critical()
+        elif severity in ('high', 'medium'):
+            report.increment_warnings()
+
+    # Verificar hardware
+    gpu_data = hardware_info.get('GPU', hardware_info.get('gpu', []))
+    if isinstance(gpu_data, list) and gpu_data:
+        vram = gpu_data[0].get('VRAM_GB', 0)
+        if vram > 0 and vram < 2:
+            report.increment_critical()
+            report.add_recommendation('VRAM insuficiente: se recomienda al menos 2 GB')
+        elif vram > 0 and vram < 4:
+            report.increment_warnings()
+            report.add_recommendation('Se recomienda una GPU con al menos 4 GB de VRAM')
+
+    ram_data = hardware_info.get('RAM', hardware_info.get('ram', {}))
+    if isinstance(ram_data, dict):
+        total_gb = ram_data.get('TotalGB', 0)
+        if total_gb > 0 and total_gb < 8:
+            report.increment_critical()
+            report.add_recommendation('RAM insuficiente: se requieren al menos 8 GB')
+        elif total_gb > 0 and total_gb < 16:
+            report.increment_warnings()
+            report.add_recommendation('Se recomienda 16 GB de RAM para FiveM')
+
+    # Verificar red
+    if isinstance(network_info, dict):
+        ping = network_info.get('Ping', 0)
+        status = network_info.get('Status', '')
+        if status == 'Error':
+            report.increment_critical()
+            report.add_recommendation('No se pudo establecer conexion de red')
+        elif ping > 100:
+            report.increment_warnings()
+            report.add_recommendation(f'Latencia alta ({ping}ms). Verifica tu conexion')
+
+    # Verificar mods
+    if mods_info and isinstance(mods_info, dict):
+        mod_count = mods_info.get('Count', 0)
+        if mod_count > 0:
+            report.increment_warnings()
+            report.add_recommendation('Desactiva los mods antes de jugar FiveM')
+
+    # Verificar software conflictivo
+    if conflicts_info and isinstance(conflicts_info, dict):
+        conflict_count = conflicts_info.get('Count', len(conflicts_info.get('ConflictsFound', [])))
+        if conflict_count > 0:
+            report.increment_warnings()
+            report.add_recommendation('Cierra el software conflictivo antes de jugar')
+
+
+# ============= INICIALIZACION =============
 
 def initialize_app():
+    """Crea las carpetas de trabajo necesarias al iniciar la aplicacion."""
     folders = [system_paths.work_folder, system_paths.backup_folder]
     for category in BACKUP_CATEGORIES:
         folders.append(os.path.join(system_paths.backup_folder, category))
@@ -122,12 +188,14 @@ def initialize_app():
 
 @app.route('/')
 def index():
+    """Sirve la pagina principal."""
     return render_template('index.html')
 
 
 @app.route('/api/status', methods=['GET'])
 @api_error_handler
 def api_status():
+    """Devuelve el estado actual de la sesion."""
     diag_session = get_current_session()
     return jsonify({
         'status': 'Listo',
@@ -138,11 +206,12 @@ def api_status():
     })
 
 
-# ============= DIAGNÓSTICO =============
+# ============= DIAGNOSTICO =============
 
 @app.route('/api/diagnostic/complete', methods=['POST'])
 @api_error_handler
 def api_diagnostic_complete():
+    """Ejecuta un diagnostico completo del sistema."""
     diag_session = get_current_session()
     diag = DiagnosticService(svc_cfg)
     hw = HardwareService(svc_cfg)
@@ -169,14 +238,26 @@ def api_diagnostic_complete():
         'Antivirus': antivirus_info.get('Installed', [])
     }
 
+    # Agregar recomendaciones de antivirus y errores
     for rec in antivirus_info.get('Recommendations', []):
         report.add_recommendation(rec)
     for rec in errors_info.get('Recommendations', []):
         report.add_recommendation(rec)
 
+    # Contar problemas criticos y advertencias
+    _count_issues_from_diagnostics(
+        report, errors_info,
+        {'GPU': gpu_info, 'RAM': ram_info},
+        network_info, mods_info, conflicts_info
+    )
+
+    # GTA V no encontrado es critico
+    if not gta_info.get('Path'):
+        report.increment_critical()
+        report.add_recommendation('GTA V no encontrado. Verifica la instalacion')
+
     report.calculate_overall_status()
 
-    # FIX: Devolver estructura plana que el frontend puede consumir directamente
     result = report.to_dict()
     result['gpu'] = gpu_info
     result['ram'] = ram_info
@@ -188,12 +269,14 @@ def api_diagnostic_complete():
 @app.route('/api/diagnostic/full/v2', methods=['POST'])
 @api_error_handler
 def api_diagnostic_full_v2():
+    """Ejecuta el diagnostico PRO v2 con todas las fases."""
     diag_session = get_current_session()
     diag = DiagnosticService(svc_cfg)
     hw = HardwareService(svc_cfg)
     net = NetworkService(svc_cfg)
 
     phases = []
+
     phases.append({'name': 'Requisitos', 'status': 'completed'})
     hardware_info = hw.get_all_hardware_info()
     requirements = diag.check_system_requirements(hardware_info)
@@ -202,6 +285,7 @@ def api_diagnostic_full_v2():
     gta_info = diag.get_gtav_path()
 
     phases.append({'name': 'Hardware', 'status': 'completed'})
+
     phases.append({'name': 'Red', 'status': 'completed'})
     network_info = net.test_network_quality()
 
@@ -215,6 +299,7 @@ def api_diagnostic_full_v2():
     conflicts_info = diag.detect_conflicting_software()
 
     phases.append({'name': 'Antivirus', 'status': 'completed'})
+
     phases.append({'name': 'Verificaciones', 'status': 'completed'})
     directx_info = diag.check_directx()
     vcredist_info = diag.check_vcredist()
@@ -227,10 +312,29 @@ def api_diagnostic_full_v2():
     report.hardware_info = hardware_info
     report.network_info = network_info
     report.errors_info = errors_info
+
+    # Contar problemas criticos y advertencias
+    _count_issues_from_diagnostics(
+        report, errors_info, hardware_info,
+        network_info, mods_info, conflicts_info
+    )
+
+    # GTA V no encontrado es critico
+    if not gta_info.get('Path'):
+        report.increment_critical()
+        report.add_recommendation('GTA V no encontrado. Verifica la instalacion')
+
+    # Agregar recomendaciones de requisitos
+    for rec in requirements.get('recommendations', []):
+        report.add_recommendation(rec)
+
+    # Agregar recomendaciones de VC++ Redist
+    for rec in vcredist_info.get('recommendations', []):
+        report.add_recommendation(rec)
+
     report.calculate_overall_status()
 
     result = report.to_dict()
-    # FIX: Añadir alias para que el frontend pueda leerlos
     result['gpu'] = hardware_info.get('gpu', [])
     result['ram'] = hardware_info.get('ram', {})
     result['cpu'] = hardware_info.get('cpu', {})
@@ -247,6 +351,7 @@ def api_diagnostic_full_v2():
 @app.route('/api/detect/gtav', methods=['POST'])
 @api_error_handler
 def api_detect_gtav():
+    """Detecta la instalacion de GTA V."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.get_gtav_path())
 
@@ -254,6 +359,7 @@ def api_detect_gtav():
 @app.route('/api/detect/fivem', methods=['POST'])
 @api_error_handler
 def api_detect_fivem():
+    """Detecta la instalacion de FiveM."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.get_fivem_status())
 
@@ -261,6 +367,7 @@ def api_detect_fivem():
 @app.route('/api/detect/gpu', methods=['POST'])
 @api_error_handler
 def api_detect_gpu():
+    """Detecta informacion de la GPU."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.get_gpu_info())
 
@@ -268,6 +375,7 @@ def api_detect_gpu():
 @app.route('/api/detect/ram', methods=['POST'])
 @api_error_handler
 def api_detect_ram():
+    """Detecta informacion de la RAM."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.get_ram_info())
 
@@ -275,6 +383,7 @@ def api_detect_ram():
 @app.route('/api/detect/cpu', methods=['POST'])
 @api_error_handler
 def api_detect_cpu():
+    """Detecta informacion de la CPU."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.get_cpu_info())
 
@@ -282,6 +391,7 @@ def api_detect_cpu():
 @app.route('/api/detect/network', methods=['POST'])
 @api_error_handler
 def api_detect_network():
+    """Prueba la calidad de la conexion de red."""
     net = NetworkService(svc_cfg)
     return jsonify(net.test_network_quality())
 
@@ -289,6 +399,7 @@ def api_detect_network():
 @app.route('/api/detect/mods', methods=['POST'])
 @api_error_handler
 def api_detect_mods():
+    """Detecta mods instalados en GTA V."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.detect_gta_mods())
 
@@ -296,6 +407,7 @@ def api_detect_mods():
 @app.route('/api/detect/conflicts', methods=['POST'])
 @api_error_handler
 def api_detect_conflicts():
+    """Detecta software conflictivo en ejecucion."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.detect_conflicting_software())
 
@@ -303,6 +415,7 @@ def api_detect_conflicts():
 @app.route('/api/detect/overlays', methods=['POST'])
 @api_error_handler
 def api_detect_overlays():
+    """Detecta overlays conflictivos en ejecucion."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.detect_conflicting_overlays())
 
@@ -310,6 +423,7 @@ def api_detect_overlays():
 @app.route('/api/detect/antivirus', methods=['POST'])
 @api_error_handler
 def api_detect_antivirus():
+    """Detecta antivirus instalado."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.get_antivirus_info())
 
@@ -317,6 +431,7 @@ def api_detect_antivirus():
 @app.route('/api/detect/requirements', methods=['POST'])
 @api_error_handler
 def api_detect_requirements():
+    """Verifica los requisitos del sistema para FiveM."""
     diag = DiagnosticService(svc_cfg)
     hw = HardwareService(svc_cfg)
     hardware_info = hw.get_all_hardware_info()
@@ -326,6 +441,7 @@ def api_detect_requirements():
 @app.route('/api/detect/temperatures', methods=['POST'])
 @api_error_handler
 def api_detect_temperatures():
+    """Obtiene las temperaturas del sistema."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.get_system_temperatures())
 
@@ -333,6 +449,7 @@ def api_detect_temperatures():
 @app.route('/api/detect/packetloss', methods=['POST'])
 @api_error_handler
 def api_detect_packetloss():
+    """Prueba la perdida de paquetes de red."""
     net = NetworkService(svc_cfg)
     return jsonify(net.test_packet_loss())
 
@@ -340,6 +457,7 @@ def api_detect_packetloss():
 @app.route('/api/detect/directx', methods=['POST'])
 @api_error_handler
 def api_detect_directx():
+    """Verifica la version de DirectX."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.check_directx())
 
@@ -347,6 +465,7 @@ def api_detect_directx():
 @app.route('/api/detect/vcredist', methods=['POST'])
 @api_error_handler
 def api_detect_vcredist():
+    """Verifica las Visual C++ Redistributables instaladas."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.check_vcredist())
 
@@ -354,6 +473,7 @@ def api_detect_vcredist():
 @app.route('/api/analyze/logs', methods=['POST'])
 @api_error_handler
 def api_analyze_logs():
+    """Analiza los logs de FiveM."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.analyze_fivem_errors())
 
@@ -361,6 +481,7 @@ def api_analyze_logs():
 @app.route('/api/analyze/errors/advanced', methods=['POST'])
 @api_error_handler
 def api_analyze_errors_advanced():
+    """Realiza un analisis avanzado de errores de FiveM."""
     diag = DiagnosticService(svc_cfg)
     errors = diag.analyze_fivem_errors()
     detailed_errors = []
@@ -383,6 +504,7 @@ def api_analyze_errors_advanced():
 @app.route('/api/analyze/crashdumps', methods=['POST'])
 @api_error_handler
 def api_analyze_crashdumps():
+    """Analiza los crash dumps de FiveM."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.analyze_crash_dumps())
 
@@ -390,15 +512,17 @@ def api_analyze_crashdumps():
 @app.route('/api/verify/gtav', methods=['POST'])
 @api_error_handler
 def api_verify_gtav():
+    """Verifica la integridad de los archivos de GTA V."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.verify_gtav_integrity())
 
 
-# ============= REPARACIÓN =============
+# ============= REPARACION =============
 
 @app.route('/api/repair/quick', methods=['POST'])
 @api_error_handler
 def api_repair_quick():
+    """Ejecuta una reparacion rapida (terminar procesos + limpiar cache + eliminar DLLs)."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     repairs_applied = []
@@ -408,7 +532,7 @@ def api_repair_quick():
 
     cache_result = repair.clear_fivem_cache_selective()
     if cache_result.get('cleaned_mb', 0) > 0:
-        repairs_applied.append(f"Caché limpiada ({cache_result['cleaned_mb']} MB)")
+        repairs_applied.append(f"Cache limpiada ({cache_result['cleaned_mb']} MB)")
 
     dll_result = repair.remove_conflicting_dlls()
     if dll_result.get('removed'):
@@ -425,6 +549,7 @@ def api_repair_quick():
 @app.route('/api/repair/kill', methods=['POST'])
 @api_error_handler
 def api_repair_kill():
+    """Termina todos los procesos de FiveM."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.kill_fivem_processes())
@@ -433,6 +558,7 @@ def api_repair_kill():
 @app.route('/api/repair/cache/selective', methods=['POST'])
 @api_error_handler
 def api_repair_cache_selective():
+    """Limpia la cache de FiveM de forma selectiva."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.clear_fivem_cache_selective())
@@ -441,6 +567,7 @@ def api_repair_cache_selective():
 @app.route('/api/repair/cache/complete', methods=['POST'])
 @api_error_handler
 def api_repair_cache_complete():
+    """Limpia la cache completa de FiveM."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.clear_fivem_cache_complete())
@@ -449,6 +576,7 @@ def api_repair_cache_complete():
 @app.route('/api/repair/dlls', methods=['POST'])
 @api_error_handler
 def api_repair_dlls():
+    """Elimina DLLs conflictivas del sistema."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.remove_conflicting_dlls())
@@ -457,14 +585,16 @@ def api_repair_dlls():
 @app.route('/api/repair/v8dlls', methods=['POST'])
 @api_error_handler
 def api_repair_v8dlls():
+    """Elimina especificamente las v8 DLLs conflictivas de System32."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair.remove_conflicting_dlls())
+    return jsonify(repair.remove_v8_dlls())
 
 
 @app.route('/api/repair/ros', methods=['POST'])
 @api_error_handler
 def api_repair_ros():
+    """Repara la autenticacion de Rockstar Online Services."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.repair_ros_authentication())
@@ -473,14 +603,16 @@ def api_repair_ros():
 @app.route('/api/repair/rosfiles', methods=['POST'])
 @api_error_handler
 def api_repair_rosfiles():
+    """Limpia los archivos de Rockstar Online Services."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair.repair_ros_authentication())
+    return jsonify(repair.clean_ros_files())
 
 
 @app.route('/api/repair/mods/disable', methods=['POST'])
 @api_error_handler
 def api_repair_mods_disable():
+    """Desactiva los mods de GTA V."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.disable_gta_mods())
@@ -489,6 +621,7 @@ def api_repair_mods_disable():
 @app.route('/api/repair/conflicts/close', methods=['POST'])
 @api_error_handler
 def api_repair_conflicts_close():
+    """Cierra el software conflictivo detectado."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.close_conflicting_software())
@@ -497,6 +630,7 @@ def api_repair_conflicts_close():
 @app.route('/api/repair/advanced', methods=['POST'])
 @api_error_handler
 def api_repair_advanced():
+    """Ejecuta reparaciones avanzadas seleccionadas por el usuario."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
 
@@ -507,18 +641,19 @@ def api_repair_advanced():
     if not valid_repairs:
         return jsonify({
             'success': False,
-            'error': 'No se seleccionaron reparaciones válidas',
+            'error': 'No se seleccionaron reparaciones validas',
             'results': []
         })
 
     return jsonify(repair.run_advanced_repair(valid_repairs))
 
 
-# ============= OPTIMIZACIÓN =============
+# ============= OPTIMIZACION =============
 
 @app.route('/api/optimize/firewall', methods=['POST'])
 @api_error_handler
 def api_optimize_firewall():
+    """Configura reglas de firewall para FiveM."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.add_firewall_exclusions())
@@ -527,6 +662,7 @@ def api_optimize_firewall():
 @app.route('/api/optimize/defender', methods=['POST'])
 @api_error_handler
 def api_optimize_defender():
+    """Configura exclusiones de Windows Defender para FiveM."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     return jsonify(repair.add_defender_exclusions())
@@ -535,38 +671,43 @@ def api_optimize_defender():
 @app.route('/api/optimize/pagefile', methods=['POST'])
 @api_error_handler
 def api_optimize_pagefile():
+    """Optimiza la configuracion del archivo de paginacion."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair._optimize_page_file())
+    return jsonify(repair.optimize_page_file())
 
 
 @app.route('/api/optimize/graphics', methods=['POST'])
 @api_error_handler
 def api_optimize_graphics():
+    """Optimiza la configuracion grafica de GTA V."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair._optimize_graphics_config())
+    return jsonify(repair.optimize_graphics_config())
 
 
 @app.route('/api/optimize/texturebudget', methods=['POST'])
 @api_error_handler
 def api_optimize_texturebudget():
+    """Configura el Texture Budget basado en la VRAM detectada."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair._configure_texture_budget())
+    return jsonify(repair.configure_texture_budget())
 
 
 @app.route('/api/optimize/windows', methods=['POST'])
 @api_error_handler
 def api_optimize_windows():
+    """Aplica optimizaciones de Windows para gaming."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
-    return jsonify(repair._optimize_windows())
+    return jsonify(repair.optimize_windows())
 
 
 @app.route('/api/optimize/dns', methods=['POST'])
 @api_error_handler
 def api_optimize_dns():
+    """Analiza y recomienda el mejor DNS."""
     net = NetworkService(svc_cfg)
     return jsonify(net.optimize_dns())
 
@@ -574,15 +715,17 @@ def api_optimize_dns():
 @app.route('/api/benchmark', methods=['POST'])
 @api_error_handler
 def api_benchmark():
+    """Ejecuta un benchmark del sistema."""
     hw = HardwareService(svc_cfg)
     return jsonify(hw.run_benchmark())
 
 
-# ============= CONFIGURACIÓN =============
+# ============= CONFIGURACION =============
 
 @app.route('/api/config/citizenfx', methods=['GET'])
 @api_error_handler
 def api_config_citizenfx_get():
+    """Obtiene la configuracion actual de CitizenFX.ini."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.get_citizenfx_config())
 
@@ -590,9 +733,14 @@ def api_config_citizenfx_get():
 @app.route('/api/config/citizenfx', methods=['POST'])
 @api_error_handler
 def api_config_citizenfx_post():
+    """Guarda la configuracion de CitizenFX.ini."""
     diag_session = get_current_session()
     data = request.get_json() or {}
     ini_path = system_paths.fivem_paths.get('CitizenFXIni', '')
+
+    if not ini_path:
+        return jsonify({'success': False, 'error': 'Ruta de CitizenFX.ini no configurada'})
+
     ensure_directory_exists(os.path.dirname(ini_path))
     try:
         with open(ini_path, 'w', encoding='utf-8') as f:
@@ -601,16 +749,18 @@ def api_config_citizenfx_post():
         diag_session.report.add_repair_applied('CitizenFX.ini configurado')
         return jsonify({'success': True, 'path': ini_path})
     except Exception as e:
+        logger.error(f"Error writing CitizenFX.ini: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/config/launchparams', methods=['GET'])
 @api_error_handler
 def api_config_launchparams_get():
+    """Obtiene los parametros de lanzamiento disponibles."""
     return jsonify({
         'parameters': [],
         'available': [
-            {'param': '-novid', 'description': 'Omite video de introducción'},
+            {'param': '-novid', 'description': 'Omite video de introduccion'},
             {'param': '-threads 4', 'description': 'Usa 4 hilos de CPU'},
             {'param': '-memleakfix', 'description': 'Corrige fugas de memoria'},
             {'param': '-high', 'description': 'Prioridad alta de proceso'}
@@ -621,6 +771,7 @@ def api_config_launchparams_get():
 @app.route('/api/config/launchparams', methods=['POST'])
 @api_error_handler
 def api_config_launchparams_post():
+    """Guarda los parametros de lanzamiento seleccionados."""
     diag_session = get_current_session()
     data = request.get_json() or {}
     parameters = data.get('parameters', [])
@@ -628,18 +779,20 @@ def api_config_launchparams_post():
     try:
         with open(config_path, 'w', encoding='utf-8') as f:
             f.write(' '.join(parameters))
-        diag_session.report.add_repair_applied('Parámetros de lanzamiento configurados')
+        diag_session.report.add_repair_applied('Parametros de lanzamiento configurados')
         diag_session.report.add_recommendation(
             f'Agrega al acceso directo: {" ".join(parameters)}'
         )
         return jsonify({'success': True, 'parameters': parameters})
     except Exception as e:
+        logger.error(f"Error writing launch params: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/config/export', methods=['POST'])
 @api_error_handler
 def api_config_export():
+    """Exporta la configuracion actual a un archivo JSON."""
     import json
     diag_session = get_current_session()
     diag = DiagnosticService(svc_cfg)
@@ -649,26 +802,30 @@ def api_config_export():
         'citizenfx': diag.get_citizenfx_config(),
         'report': diag_session.get_report_dict()
     }
-    export_path = os.path.join(system_paths.work_folder, f'FiveM_Config_{get_timestamp()}.json')
+    export_path = os.path.join(
+        system_paths.work_folder, f'FiveM_Config_{get_timestamp()}.json'
+    )
     try:
         with open(export_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
         return jsonify({'success': True, 'path': export_path})
     except Exception as e:
+        logger.error(f"Error exporting config: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/profiles/apply', methods=['POST'])
 @api_error_handler
 def api_profiles_apply():
+    """Aplica un perfil de rendimiento predefinido."""
     diag_session = get_current_session()
     repair = RepairService(svc_cfg, diag_session)
     data = request.get_json() or {}
     profile = data.get('profile', 'medium')
     valid_profiles = {'potato', 'low', 'medium', 'high', 'ultra'}
     if profile not in valid_profiles:
-        return jsonify({'success': False, 'error': 'Perfil no válido'})
-    repair._optimize_graphics_config()
+        return jsonify({'success': False, 'error': 'Perfil no valido'})
+    repair.optimize_graphics_config()
     diag_session.report.add_repair_applied(f'Perfil {profile} aplicado')
     return jsonify({'success': True, 'profile': profile})
 
@@ -678,6 +835,7 @@ def api_profiles_apply():
 @app.route('/api/backups', methods=['GET'])
 @api_error_handler
 def api_backups():
+    """Lista todos los backups disponibles."""
     from datetime import datetime
     backups = []
     backup_folder = system_paths.backup_folder
@@ -689,7 +847,9 @@ def api_backups():
             for item in os.listdir(category_path):
                 item_path = os.path.join(category_path, item)
                 try:
-                    size = get_folder_size(item_path) if os.path.isdir(item_path) else os.path.getsize(item_path)
+                    size = (get_folder_size(item_path)
+                            if os.path.isdir(item_path)
+                            else os.path.getsize(item_path))
                     mtime = os.path.getmtime(item_path)
                     backups.append({
                         'name': item,
@@ -707,6 +867,7 @@ def api_backups():
 @app.route('/api/backups/restore', methods=['POST'])
 @api_error_handler
 def api_backups_restore():
+    """Restaura un backup seleccionado."""
     import shutil
     diag_session = get_current_session()
     data = request.get_json() or {}
@@ -714,7 +875,7 @@ def api_backups_restore():
 
     if not validate_backup_path(backup_path, system_paths.backup_folder):
         logger.warning(f"Invalid restore path attempt: {backup_path}")
-        return jsonify({'success': False, 'error': 'Ruta de backup no válida'}), 400
+        return jsonify({'success': False, 'error': 'Ruta de backup no valida'}), 400
 
     if not os.path.exists(backup_path):
         return jsonify({'success': False, 'error': 'Backup no encontrado'}), 404
@@ -726,7 +887,13 @@ def api_backups_restore():
     elif 'CitizenFX' in backup_name:
         destination = system_paths.fivem_paths.get('CitizenFXIni', '')
     else:
-        return jsonify({'success': False, 'error': 'No se puede determinar el destino del backup'})
+        return jsonify({
+            'success': False,
+            'error': 'No se puede determinar el destino del backup'
+        })
+
+    if not destination:
+        return jsonify({'success': False, 'error': 'Ruta de destino no configurada'})
 
     try:
         if os.path.exists(destination):
@@ -750,6 +917,7 @@ def api_backups_restore():
 @app.route('/api/report/generate', methods=['POST'])
 @api_error_handler
 def api_report_generate():
+    """Genera un reporte HTML del diagnostico."""
     diag_session = get_current_session()
     report = diag_session.report
 
@@ -771,29 +939,32 @@ def api_report_generate():
 <body>
     <h1>FiveM Diagnostic Report</h1>
     <p>Generado: {get_formatted_datetime()}</p>
-    <p>Versión: {SCRIPT_VERSION}</p>
+    <p>Version: {SCRIPT_VERSION}</p>
     <div class="section">
         <h2>Estado General: {report.overall_status}</h2>
-        <p>Problemas Críticos: <span class="error">{report.critical_issues}</span></p>
+        <p>Problemas Criticos: <span class="error">{report.critical_issues}</span></p>
         <p>Advertencias: <span class="warning">{report.warnings}</span></p>
     </div>
     <div class="section">
         <h2>Reparaciones Aplicadas</h2>
-        {''.join(f'<p class="success">✓ {r}</p>' for r in report.repairs_applied) or '<p>Ninguna</p>'}
+        {''.join(f'<p class="success">&#10003; {r}</p>' for r in report.repairs_applied) or '<p>Ninguna</p>'}
     </div>
     <div class="section">
         <h2>Recomendaciones</h2>
-        {''.join(f'<p>→ {r}</p>' for r in report.recommendations) or '<p>Ninguna</p>'}
+        {''.join(f'<p>&rarr; {r}</p>' for r in report.recommendations) or '<p>Ninguna</p>'}
     </div>
 </body>
 </html>'''
 
-    report_path = os.path.join(system_paths.work_folder, f'FiveM_Report_{get_timestamp()}.html')
+    report_path = os.path.join(
+        system_paths.work_folder, f'FiveM_Report_{get_timestamp()}.html'
+    )
     try:
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(html)
         return jsonify({'success': True, 'path': report_path})
     except Exception as e:
+        logger.error(f"Error generating report: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -801,21 +972,20 @@ def api_report_generate():
 @api_error_handler
 def api_report_view():
     """
-    FIX: El endpoint ahora acepta un parámetro ?path= opcional.
-    Si no se proporciona, devuelve el reporte más reciente.
+    Sirve un reporte HTML generado previamente.
+    Acepta un parametro ?path= opcional. Si no se proporciona,
+    devuelve el reporte mas reciente.
     """
     import glob
 
     requested_path = request.args.get('path', '').strip()
 
     if requested_path:
-        # Validar que la ruta esté dentro de la carpeta de trabajo
         if not validate_backup_path(requested_path, system_paths.work_folder):
             return jsonify({'error': 'Ruta no permitida'}), 400
         if os.path.exists(requested_path) and requested_path.endswith('.html'):
             return send_file(requested_path)
 
-    # Fallback: el más reciente
     pattern = os.path.join(system_paths.work_folder, 'FiveM_Report_*.html')
     reports = glob.glob(pattern)
     if not reports:
@@ -837,4 +1007,8 @@ if __name__ == '__main__':
     print(f"[INFO] Servidor: http://{server_config.host}:{server_config.port}")
     print(f"[INFO] Debug: {server_config.debug}")
     print()
-    app.run(host=server_config.host, port=server_config.port, debug=server_config.debug)
+    app.run(
+        host=server_config.host,
+        port=server_config.port,
+        debug=server_config.debug
+    )
