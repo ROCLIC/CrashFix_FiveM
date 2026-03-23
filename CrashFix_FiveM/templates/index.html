@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FiveM Diagnostic & AUTO-REPAIR Tool v6.1 PRO</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">⚡</span>
+                    <div class="logo-text">
+                        <span class="logo-title">FiveM Diagnostic</span>
+                        <span class="logo-version">v6.1 PRO</span>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <span class="nav-section-title">ACCIONES RÁPIDAS</span>
+                    <button class="nav-btn accent" onclick="runQuickRepair()">
+                        <span class="btn-icon">⚡</span><span>Reparación Rápida</span>
+                    </button>
+                    <button class="nav-btn success" onclick="runCompleteDiagnostic()">
+                        <span class="btn-icon">🔍</span><span>Diagnóstico Completo</span>
+                    </button>
+                    <button class="nav-btn" onclick="runFullDiagnosticV2()" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;">
+                        <span class="btn-icon">🚀</span><span>Diagnóstico PRO v2</span>
+                    </button>
+                    <button class="nav-btn warning" onclick="runDiagnoseAndRepair()">
+                        <span class="btn-icon">🔧</span><span>Diagnóstico + Reparar</span>
+                    </button>
+                    <button class="nav-btn" onclick="showAdvancedRepairModal()" style="background:#7c3aed;color:#fff;">
+                        <span class="btn-icon">🛠️</span><span>Reparación Avanzada</span>
+                    </button>
+                </div>
+
+                <div class="nav-section">
+                    <span class="nav-section-title">DIAGNÓSTICO</span>
+                    <button class="nav-btn" onclick="checkRequirements()"><span class="btn-icon">✅</span><span>Verificar Requisitos</span></button>
+                    <button class="nav-btn" onclick="detectGTA()"><span class="btn-icon">🎮</span><span>Detectar GTA V</span></button>
+                    <button class="nav-btn" onclick="verifyGTAV()"><span class="btn-icon">🔎</span><span>Verificar Integridad GTA</span></button>
+                    <button class="nav-btn" onclick="analyzeGPU()"><span class="btn-icon">🖥️</span><span>Analizar GPU</span></button>
+                    <button class="nav-btn" onclick="analyzeRAM()"><span class="btn-icon">💾</span><span>Analizar RAM</span></button>
+                    <button class="nav-btn" onclick="analyzeCPU()"><span class="btn-icon">⚙️</span><span>Analizar CPU</span></button>
+                    <button class="nav-btn" onclick="checkTemperatures()"><span class="btn-icon">🌡️</span><span>Temperaturas</span></button>
+                    <button class="nav-btn" onclick="testNetwork()"><span class="btn-icon">🌐</span><span>Testear Red</span></button>
+                    <button class="nav-btn" onclick="testPacketLoss()"><span class="btn-icon">📡</span><span>Test Packet Loss</span></button>
+                    <button class="nav-btn" onclick="analyzeLogs()"><span class="btn-icon">📋</span><span>Analizar Logs</span></button>
+                    <button class="nav-btn" onclick="analyzeErrorsAdvanced()"><span class="btn-icon">🔬</span><span>Análisis Errores PRO</span></button>
+                    <button class="nav-btn" onclick="analyzeCrashDumps()"><span class="btn-icon">💥</span><span>Analizar Crash Dumps</span></button>
+                    <button class="nav-btn" onclick="detectMods()"><span class="btn-icon">📦</span><span>Detectar Mods</span></button>
+                    <button class="nav-btn" onclick="detectConflicts()"><span class="btn-icon">⚠️</span><span>Software Conflictivo</span></button>
+                    <button class="nav-btn" onclick="detectOverlays()"><span class="btn-icon">🎭</span><span>Detectar Overlays</span></button>
+                    <button class="nav-btn" onclick="detectAntivirus()"><span class="btn-icon">🛡️</span><span>Detectar Antivirus</span></button>
+                    <button class="nav-btn" onclick="checkDirectX()"><span class="btn-icon">🎯</span><span>Verificar DirectX</span></button>
+                    <button class="nav-btn" onclick="checkVCRedist()"><span class="btn-icon">📚</span><span>Verificar VC++ Redist</span></button>
+                    <button class="nav-btn" onclick="runBenchmark()"><span class="btn-icon">📊</span><span>Benchmark</span></button>
+                </div>
+
+                <div class="nav-section">
+                    <span class="nav-section-title">REPARACIONES</span>
+                    <button class="nav-btn" onclick="killProcesses()"><span class="btn-icon">🔴</span><span>Terminar Procesos</span></button>
+                    <button class="nav-btn" onclick="clearCacheSelective()"><span class="btn-icon">🧹</span><span>Limpiar Caché (Selectiva)</span></button>
+                    <button class="nav-btn" onclick="clearCacheComplete()"><span class="btn-icon">🗑️</span><span>Limpiar Caché (Completa)</span></button>
+                    <button class="nav-btn" onclick="removeDLLs()"><span class="btn-icon">📁</span><span>Eliminar DLLs Conflictivas</span></button>
+                    <button class="nav-btn" onclick="cleanV8DLLs()"><span class="btn-icon">🧬</span><span>Limpiar v8 DLLs</span></button>
+                    <button class="nav-btn" onclick="cleanROSFiles()"><span class="btn-icon">🔐</span><span>Limpiar Archivos ROS</span></button>
+                    <button class="nav-btn" onclick="repairROS()"><span class="btn-icon">🔑</span><span>Reparar ROS</span></button>
+                    <button class="nav-btn" onclick="disableMods()"><span class="btn-icon">🚫</span><span>Desactivar Mods</span></button>
+                    <button class="nav-btn" onclick="closeConflicts()"><span class="btn-icon">❌</span><span>Cerrar Conflictos</span></button>
+                </div>
+
+                <div class="nav-section">
+                    <span class="nav-section-title">OPTIMIZACIÓN</span>
+                    <button class="nav-btn" onclick="configureFirewall()"><span class="btn-icon">🔥</span><span>Configurar Firewall</span></button>
+                    <button class="nav-btn" onclick="configureDefender()"><span class="btn-icon">🛡️</span><span>Exclusiones Defender</span></button>
+                    <button class="nav-btn" onclick="optimizePageFile()"><span class="btn-icon">📄</span><span>Optimizar Paginación</span></button>
+                    <button class="nav-btn" onclick="optimizeGraphics()"><span class="btn-icon">🎨</span><span>Optimizar Gráficos</span></button>
+                    <button class="nav-btn" onclick="configureTextureBudget()"><span class="btn-icon">🖼️</span><span>Texture Budget Auto</span></button>
+                    <button class="nav-btn" onclick="optimizeWindows()"><span class="btn-icon">🪟</span><span>Optimizar Windows</span></button>
+                    <button class="nav-btn" onclick="optimizeDNS()"><span class="btn-icon">🌍</span><span>Optimizar DNS</span></button>
+                    <button class="nav-btn" onclick="showProfilesModal()"><span class="btn-icon">⚡</span><span>Perfiles Rendimiento</span></button>
+                    <button class="nav-btn" onclick="showCitizenFXModal()"><span class="btn-icon">📝</span><span>Configurar CitizenFX</span></button>
+                    <button class="nav-btn" onclick="showLaunchParamsModal()"><span class="btn-icon">🚀</span><span>Parámetros Lanzamiento</span></button>
+                </div>
+
+                <div class="nav-section">
+                    <span class="nav-section-title">REPORTES Y BACKUPS</span>
+                    <button class="nav-btn" onclick="generateReport()"><span class="btn-icon">📊</span><span>Generar Reporte HTML</span></button>
+                    <button class="nav-btn" onclick="exportConfig()"><span class="btn-icon">💾</span><span>Exportar Configuración</span></button>
+                    <button class="nav-btn" onclick="showBackupsModal()"><span class="btn-icon">📂</span><span>Restaurar Backup</span></button>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="main-header">
+                <div class="header-title">
+                    <h1>FiveM Diagnostic &amp; AUTO-REPAIR Tool</h1>
+                    <p>Herramienta profesional de diagnóstico y reparación para FiveM v6.1 PRO</p>
+                </div>
+                <button class="btn-refresh" onclick="refreshStatus()">🔄 Actualizar Estado</button>
+            </header>
+
+            <!-- Status Cards -->
+            <div class="status-cards">
+                <div class="status-card clickable" onclick="showDetailsModal('critical')">
+                    <div class="status-card-icon status-critical">❗</div>
+                    <div class="status-card-content">
+                        <span class="status-card-label">Problemas Críticos</span>
+                        <span class="status-card-value" id="critical-count">0</span>
+                    </div>
+                    <span class="card-hint">Click para ver detalles</span>
+                </div>
+                <div class="status-card clickable" onclick="showDetailsModal('warnings')">
+                    <div class="status-card-icon status-warning">⚠️</div>
+                    <div class="status-card-content">
+                        <span class="status-card-label">Advertencias</span>
+                        <span class="status-card-value" id="warnings-count">0</span>
+                    </div>
+                    <span class="card-hint">Click para ver detalles</span>
+                </div>
+                <div class="status-card clickable" onclick="showDetailsModal('repairs')">
+                    <div class="status-card-icon status-success">✓</div>
+                    <div class="status-card-content">
+                        <span class="status-card-label">Reparaciones Exitosas</span>
+                        <span class="status-card-value" id="repairs-count">0</span>
+                    </div>
+                    <span class="card-hint">Click para ver detalles</span>
+                </div>
+                <div class="status-card clickable" onclick="showDetailsModal('benchmark')">
+                    <div class="status-card-icon status-pending">📊</div>
+                    <div class="status-card-content">
+                        <span class="status-card-label">Benchmark</span>
+                        <span class="status-card-value" id="benchmark-score">--</span>
+                    </div>
+                    <span class="card-hint">Click para ver detalles</span>
+                </div>
+            </div>
+
+            <!-- Content Grid -->
+            <div class="content-grid">
+                <!-- Console Output -->
+                <div class="content-card console-card">
+                    <div class="card-header">
+                        <h2>Consola de Salida</h2>
+                        <button class="btn-small" onclick="clearConsole()">Limpiar</button>
+                    </div>
+                    <div class="console-output" id="console-output">
+                        <div class="console-line info">
+                            <span class="console-time">[--:--:--]</span>
+                            <span class="console-msg">Bienvenido a FiveM Diagnostic Tool v6.1 PRO</span>
+                        </div>
+                        <div class="console-line info">
+                            <span class="console-time">[--:--:--]</span>
+                            <span class="console-msg">Selecciona una opción del menú lateral para comenzar</span>
+                        </div>
+                        <div class="console-line success">
+                            <span class="console-time">[--:--:--]</span>
+                            <span class="console-msg">✓ Sistema listo</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Info -->
+                <div class="content-card">
+                    <div class="card-header">
+                        <h2>Información del Sistema</h2>
+                        <button class="btn-small" onclick="refreshStatus()">Actualizar</button>
+                    </div>
+                    <div class="info-grid">
+                        <div class="info-item"><span class="info-label">Estado</span><span class="info-value" id="status-value">Esperando...</span></div>
+                        <div class="info-item"><span class="info-label">GTA V</span><span class="info-value" id="gta-status">No verificado</span></div>
+                        <div class="info-item"><span class="info-label">FiveM</span><span class="info-value" id="fivem-status">No verificado</span></div>
+                        <div class="info-item"><span class="info-label">GPU</span><span class="info-value" id="gpu-info">--</span></div>
+                        <div class="info-item"><span class="info-label">RAM</span><span class="info-value" id="ram-info">--</span></div>
+                        <div class="info-item"><span class="info-label">CPU</span><span class="info-value" id="cpu-info">--</span></div>
+                        <div class="info-item"><span class="info-label">Temp. CPU</span><span class="info-value" id="cpu-temp">--</span></div>
+                        <div class="info-item"><span class="info-label">Temp. GPU</span><span class="info-value" id="gpu-temp">--</span></div>
+                        <div class="info-item"><span class="info-label">Red</span><span class="info-value" id="network-status">--</span></div>
+                        <div class="info-item"><span class="info-label">Packet Loss</span><span class="info-value" id="packet-loss">--</span></div>
+                        <div class="info-item"><span class="info-label">DirectX</span><span class="info-value" id="directx-status">--</span></div>
+                        <div class="info-item"><span class="info-label">VC++ Redist</span><span class="info-value" id="vcredist-status">--</span></div>
+                    </div>
+                </div>
+
+                <!-- Repairs Applied -->
+                <div class="content-card">
+                    <div class="card-header">
+                        <h2>Reparaciones Aplicadas</h2>
+                    </div>
+                    <div class="repairs-list" id="repairs-list">
+                        <div class="repair-item empty">Ninguna reparación aplicada aún</div>
+                    </div>
+                </div>
+
+                <!-- Recommendations -->
+                <div class="content-card">
+                    <div class="card-header">
+                        <h2>Recomendaciones</h2>
+                    </div>
+                    <div class="recommendations-list" id="recommendations">
+                        <div class="recommendation-item empty">Ejecuta un diagnóstico para ver recomendaciones</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p class="loading-text" id="loading-text">Procesando...</p>
+    </div>
+
+    <!-- FIX: Clase corregida de 'modal' a 'modal-overlay' para que el CSS la muestre/oculte correctamente -->
+
+    <!-- Modal: Detalles -->
+    <div class="modal-overlay" id="details-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="details-modal-title">Detalles</h2>
+                <button class="modal-close" onclick="closeModal('details-modal')">&times;</button>
+            </div>
+            <div class="modal-body" id="details-modal-body"></div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('details-modal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Reparación Avanzada -->
+    <div class="modal-overlay" id="advanced-repair-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Reparación Avanzada</h2>
+                <button class="modal-close" onclick="closeModal('advanced-repair-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:15px;color:var(--text-secondary);">Selecciona las reparaciones que deseas aplicar:</p>
+                <div class="repair-options" id="repair-options">
+                    <label class="checkbox-item"><input type="checkbox" value="1" checked><span>Terminar procesos de FiveM</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="2" checked><span>Limpiar caché selectiva</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="3"><span>Limpiar caché completa</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="4" checked><span>Eliminar DLLs conflictivas</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="5"><span>Limpiar v8 DLLs (System32)</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="6"><span>Limpiar archivos ROS</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="7"><span>Reparar autenticación ROS</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="8"><span>Desactivar mods de GTA V</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="9"><span>Cerrar software conflictivo</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="10"><span>Configurar reglas de Firewall</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="11" checked><span>Optimizar configuración gráfica</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="12" checked><span>Configurar Texture Budget</span></label>
+                    <label class="checkbox-item"><input type="checkbox" value="13"><span>Optimizaciones de Windows</span></label>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:12px;">
+                    <button class="btn-small" onclick="selectAllRepairs()">Seleccionar todas</button>
+                    <button class="btn-small" onclick="deselectAllRepairs()">Deseleccionar todas</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('advanced-repair-modal')">Cancelar</button>
+                <button class="btn-primary" onclick="runAdvancedRepair()">Ejecutar Reparaciones</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Perfiles de Rendimiento -->
+    <div class="modal-overlay" id="profiles-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Perfiles de Rendimiento</h2>
+                <button class="modal-close" onclick="closeModal('profiles-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:15px;color:var(--text-secondary);">Selecciona un perfil predefinido:</p>
+                <div class="profiles-grid">
+                    <div class="profile-card" onclick="selectProfile('potato', this)">
+                        <div class="profile-icon">🥔</div>
+                        <h4>Potato (Mínimo)</h4>
+                        <p>Para PCs muy antiguos. Texture Budget: 20%</p>
+                    </div>
+                    <div class="profile-card" onclick="selectProfile('low', this)">
+                        <div class="profile-icon">📉</div>
+                        <h4>Bajo</h4>
+                        <p>Para PCs con recursos limitados. Texture Budget: 25%</p>
+                    </div>
+                    <div class="profile-card selected" onclick="selectProfile('medium', this)">
+                        <div class="profile-icon">⚖️</div>
+                        <h4>Medio (Recomendado)</h4>
+                        <p>Balance rendimiento/calidad. Texture Budget: 35%</p>
+                    </div>
+                    <div class="profile-card" onclick="selectProfile('high', this)">
+                        <div class="profile-icon">📈</div>
+                        <h4>Alto</h4>
+                        <p>Para PCs gaming. Texture Budget: 50%</p>
+                    </div>
+                    <div class="profile-card" onclick="selectProfile('ultra', this)">
+                        <div class="profile-icon">🚀</div>
+                        <h4>Ultra</h4>
+                        <p>Máxima calidad. Texture Budget: 70%</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('profiles-modal')">Cancelar</button>
+                <button class="btn-primary" onclick="applySelectedProfile()">Aplicar Perfil</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: CitizenFX.ini -->
+    <div class="modal-overlay" id="citizenfx-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Configuración CitizenFX.ini</h2>
+                <button class="modal-close" onclick="closeModal('citizenfx-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="config-form">
+                    <div class="form-group">
+                        <label>Canal de Actualización:</label>
+                        <select id="update-channel">
+                            <option value="production">Production (Estable)</option>
+                            <option value="beta">Beta</option>
+                            <option value="canary">Canary (Inestable)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Build del Juego:</label>
+                        <select id="game-build">
+                            <option value="">Automático</option>
+                            <option value="1604">1604 (Más compatible)</option>
+                            <option value="2060">2060</option>
+                            <option value="2189">2189</option>
+                            <option value="2372">2372</option>
+                            <option value="2545">2545</option>
+                            <option value="2699">2699</option>
+                            <option value="2802">2802</option>
+                            <option value="3095">3095 (Más reciente)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="disable-nvsp">
+                            <span>Desactivar GeForce Experience Overlay</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="enable-dumps">
+                            <span>Habilitar Full Memory Dumps (debug)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('citizenfx-modal')">Cancelar</button>
+                <button class="btn-primary" onclick="saveCitizenFXConfig()">Guardar Configuración</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Parámetros de Lanzamiento -->
+    <div class="modal-overlay" id="launch-params-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Parámetros de Lanzamiento</h2>
+                <button class="modal-close" onclick="closeModal('launch-params-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:15px;color:var(--text-secondary);">Selecciona los parámetros de lanzamiento:</p>
+                <div class="repair-options">
+                    <label class="checkbox-item"><input type="checkbox" id="param-novid" checked><span>-novid (Sin video de intro)</span></label>
+                    <label class="checkbox-item"><input type="checkbox" id="param-threads"><span>-threads 4 (Usar 4 hilos de CPU)</span></label>
+                    <label class="checkbox-item"><input type="checkbox" id="param-memleakfix"><span>-memleakfix (Corregir fugas de memoria)</span></label>
+                    <label class="checkbox-item"><input type="checkbox" id="param-high"><span>-high (Prioridad alta)</span></label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('launch-params-modal')">Cancelar</button>
+                <button class="btn-primary" onclick="saveLaunchParams()">Guardar Parámetros</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Backups -->
+    <div class="modal-overlay" id="backups-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Restaurar desde Backup</h2>
+                <button class="modal-close" onclick="closeModal('backups-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="backups-list"><p style="color:var(--text-muted);">Cargando backups...</p></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('backups-modal')">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
