@@ -44,6 +44,8 @@ class RepairService:
     def _record_repair(self, success: bool, message: str) -> None:
         """Registra el resultado de una reparacion en la sesion."""
         self.session.repair_stats.increment_attempted()
+        status = 'success' if success else 'error'
+        self.session.add_action('repair', message, status=status)
         if success:
             self.session.repair_stats.increment_successful()
             self.session.report.add_repair_applied(message)

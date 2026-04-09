@@ -202,7 +202,8 @@ def api_status():
         'version': SCRIPT_VERSION,
         'session_id': diag_session.session_id,
         'report': diag_session.get_report_dict(),
-        'repair_stats': diag_session.get_stats_dict()
+        'repair_stats': diag_session.get_stats_dict(),
+        'history': diag_session.action_history
     })
 
 

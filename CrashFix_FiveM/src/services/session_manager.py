@@ -138,6 +138,7 @@ class DiagnosticSession:
     last_activity: datetime = field(default_factory=datetime.now)
     report: DiagnosticReport = field(default_factory=DiagnosticReport)
     repair_stats: RepairStats = field(default_factory=RepairStats)
+    action_history: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         from config import SCRIPT_VERSION, get_formatted_datetime
@@ -147,6 +148,17 @@ class DiagnosticSession:
     def update_activity(self):
         """Actualiza la marca de tiempo de ultima actividad."""
         self.last_activity = datetime.now()
+
+    def add_action(self, action_type: str, description: str, status: str = 'info', details: Any = None):
+        """Registra una accion en el historial con timestamp."""
+        self.action_history.append({
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3],
+            'type': action_type,
+            'description': description,
+            'status': status,
+            'details': details
+        })
+        self.update_activity()
 
     def get_report_dict(self) -> Dict[str, Any]:
         """Devuelve el reporte serializado como diccionario."""

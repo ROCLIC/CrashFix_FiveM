@@ -18,7 +18,7 @@ class Logger:
             self.logger.setLevel(logging.DEBUG)
             ch = logging.StreamHandler()
             ch.setLevel(logging.INFO)
-            ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+            ch.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d - %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
             self.logger.addHandler(ch)
             if log_dir:
                 try:
@@ -26,7 +26,7 @@ class Logger:
                     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
                     fh = logging.FileHandler(os.path.join(log_dir, f'FiveM_Diagnostic_{ts}.log'), encoding='utf-8')
                     fh.setLevel(logging.DEBUG)
-                    fh.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'))
+                    fh.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'))
                     self.logger.addHandler(fh)
                 except (OSError, IOError): pass
         self._initialized = True

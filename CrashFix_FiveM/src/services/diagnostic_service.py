@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import logging
+import re
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
@@ -12,6 +13,19 @@ class DiagnosticService:
         self.paths = config.system_paths
         self.diagnostic_config = config.diagnostic_config
         self.error_patterns = config.error_patterns
+
+    def _get_fivem_log_files(self) -> List[str]:
+        """Obtiene una lista de todos los archivos de log relevantes de FiveM."""
+        log_dir = self.paths.fivem_paths.get("Logs", "")
+        if not os.path.exists(log_dir):
+            return []
+        # Buscar archivos .log y .txt en el directorio de logs de FiveM
+        log_files = []
+        for root, _, files in os.walk(log_dir):
+            for file in files:
+                if file.endswith((".log", ".txt")):
+                    log_files.append(os.path.join(root, file))
+        return log_files
 
     def get_gtav_path(self) -> Dict[str, Any]:
         """Deteccion mejorada de GTA V: registros multiples, Steam, Epic, escaneo inteligente.
@@ -299,52 +313,161 @@ class DiagnosticService:
         return {'ModsFound': found_mods, 'Count': len(found_mods), 'Path': gta_path}
 
     def analyze_fivem_errors(self) -> Dict[str, Any]:
-        logs_path = self.paths.fivem_paths.get('Logs', '')
-        errors = []
-        if not os.path.exists(logs_path):
-            return {'ErrorCount': 0, 'Errors': [], 'Recommendations': [], 'LogsPath': logs_path, 'Status': 'No se encontró carpeta de logs'}
-        try:
-            log_files = sorted(
-                [f for f in os.listdir(logs_path) if f.endswith('.log')],
-                key=lambda x: os.path.getmtime(os.path.join(logs_path, x)), reverse=True
-            )[:5]
-            patterns = self.error_patterns.patterns
-            for log_file in log_files:
-                log_path = os.path.join(logs_path, log_file)
-                try:
-                    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                    for pattern, info in patterns.items():
-                        if pattern.lower() in content.lower():
-                            errors.append({'Error': pattern, 'Severity': info['severity'], 'Description': info['description'], 'Solution': info['solution'], 'File': log_file})
-                except (IOError, OSError) as e:
-                    logger.warning(f"Error reading log {log_file}: {e}")
-        except (IOError, OSError) as e:
-            logger.error(f"Error accessing logs: {e}")
-            return {'ErrorCount': 0, 'Errors': [], 'Recommendations': [], 'Error': str(e)}
-        recommendations = list(set(e['Solution'] for e in errors))
-        return {'ErrorCount': len(errors), 'Errors': errors, 'Recommendations': recommendations, 'LogsPath': logs_path, 'LogsAnalyzed': len(log_files)}
+        """Analiza logs de FiveM buscando patrones de error conocidos usando regex."""
+        log_files = self._get_fivem_log_files()
+        all_errors = []
+        all_recommendations = []
+        processed_logs_summary = []
+
+        if not log_files:
+            return {
+                'ErrorCount': 0, 'Errors': [], 'Recommendations': [],
+                'Summary': 'No se encontraron archivos de logs de FiveM.',
+                'ProcessedLogs': []
+            }
+
+        patterns = self.error_patterns.patterns
+        for log_path in log_files:
+            errors_in_file = []
+            recommendations_in_file = []
+            lines_processed = 0
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for i, line in enumerate(f, 1):
+                        lines_processed = i
+                        for pattern_key, info in patterns.items():
+                            if re.search(pattern_key, line, re.IGNORECASE):
+                                errors_in_file.append({
+                                    'Error': pattern_key,
+                                    'Severity': info.get('severity', 'medium'),
+                                    'Description': info.get('description', 'Error desconocido'),
+                                    'Solution': info.get('solution', 'No hay solución conocida'),
+                                    'File': os.path.basename(log_path),
+                                    'Line': i
+                                })
+                                rec = info.get('solution')
+                                if rec and rec not in recommendations_in_file:
+                                    recommendations_in_file.append(rec)
+                                break  # Evita duplicados en la misma línea
+                all_errors.extend(errors_in_file)
+                all_recommendations.extend([rec for rec in recommendations_in_file if rec not in all_recommendations])
+                processed_logs_summary.append({
+                    'file': os.path.basename(log_path),
+                    'errors_found': len(errors_in_file),
+                    'lines_processed': lines_processed
+                })
+            except (IOError, OSError) as e:
+                logger.warning(f"Error al leer el log {log_path}: {e}")
+
+        summary = f"Análisis completado. Se encontraron {len(all_errors)} errores en {len(log_files)} logs."
+
+        return {
+            'ErrorCount': len(all_errors),
+            'Errors': all_errors,
+            'Recommendations': all_recommendations,
+            'Summary': summary,
+            'ProcessedLogs': processed_logs_summary
+        }
 
     def analyze_crash_dumps(self) -> Dict[str, Any]:
-        crashes_path = os.path.join(self.paths.fivem_paths.get('FiveMApp', ''), 'crashes')
-        dumps = []
+        """Analiza los crash dumps y logs asociados para clasificar los crashes."""
+        crashes_path = os.path.join(self.paths.fivem_paths.get("FiveMApp", ""), "crashes")
+        dumps_found = []
+        crash_analysis = []
+        all_recommendations = []
+
         if not os.path.exists(crashes_path):
-            return {'dumps_found': [], 'analysis': [], 'recommendations': [], 'path': crashes_path}
+            return {
+                "dumps_found": [], "analysis": [], "recommendations": [],
+                "path": crashes_path, "summary": "No se encontraron crash dumps."
+            }
+
         try:
-            for filename in os.listdir(crashes_path):
-                if filename.endswith(('.dmp', '.log')):
-                    filepath = os.path.join(crashes_path, filename)
-                    try:
-                        stat = os.stat(filepath)
-                        dumps.append({'file': filename, 'date': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'), 'size': round(stat.st_size / 1024, 1)})
-                    except OSError:
-                        pass
+            files_in_crashes_dir = os.listdir(crashes_path)
+            dump_files = [f for f in files_in_crashes_dir if f.endswith(".dmp")]
+            log_files = {f: os.path.join(crashes_path, f) for f in files_in_crashes_dir if f.endswith(".log")}
+
+            for filename in dump_files:
+                filepath = os.path.join(crashes_path, filename)
+                try:
+                    stat = os.stat(filepath)
+                    dump_entry = {
+                        "file": filename,
+                        "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        "size_kb": round(stat.st_size / 1024, 1),
+                        "associated_errors": [],
+                        "specific_recommendations": []
+                    }
+                    dumps_found.append(dump_entry)
+
+                    # Buscar log asociado (mismo nombre base)
+                    base_name = os.path.splitext(filename)[0]
+                    associated_log_file = None
+                    for log_name, log_path in log_files.items():
+                        if log_name.startswith(base_name):
+                            associated_log_file = log_path
+                            break
+
+                    if associated_log_file:
+                        try:
+                            with open(associated_log_file, "r", encoding="utf-8", errors="ignore") as f:
+                                log_content = f.read()
+                            for pattern_key, pattern_data in self.error_patterns.patterns.items():
+                                if re.search(pattern_key, log_content, re.IGNORECASE):
+                                    dump_entry["associated_errors"].append({
+                                        "type": pattern_key,
+                                        "severity": pattern_data.get("severity", "medium"),
+                                        "description": pattern_data.get("description", "Error desconocido"),
+                                        "solution": pattern_data.get("solution", "No hay solución conocida")
+                                    })
+                                    rec = pattern_data.get("solution")
+                                    if rec and rec not in dump_entry["specific_recommendations"]:
+                                        dump_entry["specific_recommendations"].append(rec)
+                                    if rec and rec not in all_recommendations:
+                                        all_recommendations.append(rec)
+                        except (IOError, OSError) as e:
+                            logger.warning(f"Error leyendo log asociado {associated_log_file}: {e}")
+
+                    if not dump_entry["associated_errors"]:
+                        dump_entry["associated_errors"].append({
+                            "type": "Desconocido",
+                            "severity": "low",
+                            "description": "No se encontraron patrones de error conocidos en el log asociado.",
+                            "solution": "Verificar manualmente el log o el dump."
+                        })
+                        if "Verificar manualmente el log o el dump." not in all_recommendations:
+                            all_recommendations.append("Verificar manualmente el log o el dump.")
+
+                    crash_analysis.append(dump_entry)
+
+                except OSError:
+                    pass
         except OSError as e:
-            logger.error(f"Error accessing crash dumps: {e}")
-        dumps.sort(key=lambda x: x['date'], reverse=True)
-        analysis = [{'file': d['file'], 'date': d['date'], 'possible_causes': ['Crash de GPU', 'Falta de memoria', 'Conflicto de software']} for d in dumps[:5]]
-        recommendations = ['Actualiza los drivers de tu GPU', 'Aumenta la memoria virtual del sistema', 'Cierra programas en segundo plano'] if dumps else []
-        return {'dumps_found': dumps, 'analysis': analysis, 'recommendations': recommendations, 'path': crashes_path}
+            logger.error(f"Error accediendo a los crash dumps: {e}")
+            return {"dumps_found": [], "analysis": [], "recommendations": [], "path": crashes_path, "summary": f"Error al acceder a los dumps: {e}"}
+
+        dumps_found.sort(key=lambda x: x["date"], reverse=True)
+        crash_analysis.sort(key=lambda x: x["date"], reverse=True)
+
+        summary_text = f"Se encontraron {len(dumps_found)} crash dumps. Análisis completado."
+        if not dumps_found:
+            summary_text = "No se encontraron crash dumps."
+
+        # Añadir recomendaciones genéricas si no hay específicas
+        if not all_recommendations and dumps_found:
+            all_recommendations.extend([
+                "Actualiza los drivers de tu GPU",
+                "Aumenta la memoria virtual del sistema",
+                "Cierra programas en segundo plano"
+            ])
+
+        return {
+            "dumps_found": dumps_found,
+            "analysis": crash_analysis,
+            "recommendations": all_recommendations,
+            "path": crashes_path,
+            "summary": summary_text
+        }
 
     def detect_conflicting_software(self) -> Dict[str, Any]:
         from src.utils.system_utils import get_running_processes
