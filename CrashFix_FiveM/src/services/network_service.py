@@ -55,6 +55,30 @@ class NetworkService:
             recommendations.append('Verifica tu conexión por cable en lugar de WiFi')
         return {'tests': results, 'average_loss': avg_loss, 'recommendations': recommendations}
 
+    def optimize_network_stack(self) -> Dict[str, Any]:
+        """Optimiza la pila de red: Flush DNS, Reset Winsock e IP."""
+        results = []
+        if is_windows():
+            commands = [
+                ('ipconfig /flushdns', 'Flush DNS Cache'),
+                ('netsh winsock reset', 'Reset Winsock Catalog'),
+                ('netsh int ip reset', 'Reset TCP/IP Stack')
+            ]
+            for cmd, desc in commands:
+                try:
+                    res = run_command(cmd.split(), timeout=10)
+                    success = res and res.returncode == 0
+                    results.append({'action': desc, 'success': success})
+                except Exception as e:
+                    results.append({'action': desc, 'success': False, 'error': str(e)})
+        
+        success_count = sum(1 for r in results if r['success'])
+        return {
+            'success': success_count > 0,
+            'actions': results,
+            'message': f"Optimización de red completada: {success_count}/{len(results)} exitosas."
+        }
+
     def optimize_dns(self) -> Dict[str, Any]:
         dns_servers = self.network_config.dns_servers
         results = []

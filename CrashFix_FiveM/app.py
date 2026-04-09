@@ -301,8 +301,23 @@ def api_repair_all():
     """Ejecuta la reparación automática completa basada en prioridades."""
     diag_session = get_current_session()
     repair_service = RepairService(svc_cfg, diag_session)
+    
+    # Integrar optimización de red en la reparación completa
+    net_service = NetworkService(svc_cfg)
+    net_service.optimize_network_stack()
+    
     result = repair_service.auto_repair_all()
     return jsonify(result)
+
+
+@app.route("/api/telemetry/send", methods=["POST"])
+@api_error_handler
+def api_telemetry_send():
+    """Envía telemetría anónima de la sesión actual."""
+    diag_session = get_current_session()
+    diag = DiagnosticService(svc_cfg)
+    success = diag.send_anonymous_telemetry(diag_session.session_id, diag_session.get_report_dict())
+    return jsonify({'success': success})
 
 
 @app.route("/api/diagnostic/full/v2", methods=["POST"])

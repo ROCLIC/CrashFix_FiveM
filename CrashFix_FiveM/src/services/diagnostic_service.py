@@ -309,8 +309,29 @@ class DiagnosticService:
             gta_path = gta_info.get('Path')
         if not gta_path:
             return {'ModsFound': [], 'Count': 0, 'Error': 'GTA V no encontrado'}
+        
         found_mods = [i for i in self.diagnostic_config.mod_indicators if os.path.exists(os.path.join(gta_path, i))]
-        return {'ModsFound': found_mods, 'Count': len(found_mods), 'Path': gta_path}
+        
+        # Detección de conflictos entre mods
+        conflicts = []
+        if 'dinput8.dll' in found_mods and 'dsound.dll' in found_mods:
+            conflicts.append('Conflicto de ASI Loaders: dinput8.dll y dsound.dll detectados simultáneamente.')
+        if 'OpenIV.asi' in found_mods and not os.path.exists(os.path.join(gta_path, 'mods')):
+            conflicts.append('OpenIV.asi detectado pero no existe carpeta "mods".')
+            
+        return {
+            'ModsFound': found_mods,
+            'Count': len(found_mods),
+            'Path': gta_path,
+            'Conflicts': conflicts,
+            'Status': 'Conflictos detectados' if conflicts else 'OK'
+        }
+
+    def send_anonymous_telemetry(self, session_id: str, data: Dict[str, Any]) -> bool:
+        """Simula el envío de telemetría anónima para mejora del sistema."""
+        # En una implementación real, esto enviaría un POST a un servidor central
+        logger.info(f"Telemetría anónima enviada para sesión {session_id}: {len(data.get('Errors', []))} errores reportados.")
+        return True
 
     def analyze_fivem_errors(self) -> Dict[str, Any]:
         """Analiza logs de FiveM buscando patrones de error conocidos usando regex."""
