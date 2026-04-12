@@ -18,11 +18,15 @@ logger = logging.getLogger(__name__)
 
 # Inicializar Flask y configuraciones
 app = Flask(__name__)
+from config import NetworkConfig, TextureBudgetConfig, SystemRequirements
 svc_cfg = type('Config', (), {
     'server_config': ServerConfig(),
     'system_paths': SystemPaths(),
     'diagnostic_config': DiagnosticConfig(),
     'error_patterns': ErrorPatterns(),
+    'network_config': NetworkConfig(),
+    'texture_budget_config': TextureBudgetConfig(),
+    'system_requirements': SystemRequirements(),
     'timeout_config': type('Timeout', (), {
         'powershell_timeout': 30,
         'command_timeout': 30,
