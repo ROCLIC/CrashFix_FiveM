@@ -1,4 +1,4 @@
-# 🚀 FiveM Diagnostic & AUTO-REPAIR Tool v6.2 PRO (10/10 Optimized)
+# 🚀CrashFix_FiveM v6.2 PRO (10/10 Optimized)
 
 Herramienta web profesional de diagnóstico y reparación automática diseñada específicamente para la comunidad de FiveM. Esta aplicación detecta y soluciona de forma inteligente problemas de hardware, software, red y configuración que causan crasheos en FiveM/GTA V.
 
