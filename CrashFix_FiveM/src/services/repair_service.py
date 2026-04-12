@@ -273,9 +273,7 @@ class RepairService:
         """Elimina todas las DLLs conflictivas conocidas de System32."""
         dlls = self.diagnostic_config.conflicting_dlls
         system32 = os.path.join(self.paths.system_root, 'System32')
-        found = []
-        removed = []
-        errors = []
+        found, removed, errors = [], [], []
 
         for dll in dlls:
             dll_path = os.path.join(system32, dll)
@@ -283,7 +281,8 @@ class RepairService:
                 found.append(dll)
                 try:
                     backup_item(dll_path, dll, self.paths.backup_folder, 'DLLs')
-                    if safe_remove_file(dll_path):
+                    # Usar safe_remove_directory que tiene logica de reintentos y permisos
+                    if safe_remove_directory(dll_path):
                         removed.append(dll)
                 except Exception as e:
                     errors.append(f"{dll}: {str(e)}")
@@ -291,12 +290,7 @@ class RepairService:
         if removed:
             self._record_repair(True, f'{len(removed)} DLLs conflictivas eliminadas')
 
-        return {
-            'success': True,
-            'found': found,
-            'removed': removed,
-            'errors': errors if errors else None
-        }
+        return {'success': True, 'found': found, 'removed': removed, 'errors': errors if errors else None}
 
     def auto_repair_all(self) -> Dict[str, Any]:
         """Ejecuta un sistema de reparación inteligente basado en prioridades y errores detectados."""
@@ -383,9 +377,7 @@ class RepairService:
         """Elimina especificamente las v8 DLLs conflictivas de System32."""
         v8_dlls = ['v8.dll', 'v8_libbase.dll', 'v8_libplatform.dll']
         system32 = os.path.join(self.paths.system_root, 'System32')
-        found = []
-        removed = []
-        errors = []
+        found, removed, errors = [], [], []
 
         for dll in v8_dlls:
             dll_path = os.path.join(system32, dll)
@@ -393,7 +385,7 @@ class RepairService:
                 found.append(dll)
                 try:
                     backup_item(dll_path, dll, self.paths.backup_folder, 'DLLs')
-                    if safe_remove_file(dll_path):
+                    if safe_remove_directory(dll_path):
                         removed.append(dll)
                 except Exception as e:
                     errors.append(f"{dll}: {str(e)}")
@@ -401,12 +393,7 @@ class RepairService:
         if removed:
             self._record_repair(True, f'{len(removed)} v8 DLLs eliminadas de System32')
 
-        return {
-            'success': True,
-            'found': found,
-            'removed': removed,
-            'errors': errors if errors else None
-        }
+        return {'success': True, 'found': found, 'removed': removed, 'errors': errors if errors else None}
 
     # ============= ROS (Rockstar Online Services) =============
 
@@ -486,19 +473,13 @@ class RepairService:
         if not gta_path:
             from src.services.diagnostic_service import DiagnosticService
             diag = DiagnosticService(self.config)
-            gta_info = diag.get_gtav_path()
-            gta_path = gta_info.get('Path')
+            gta_path = diag.get_gtav_path().get('Path')
 
         if not gta_path:
-            return {
-                'success': False,
-                'error': 'GTA V no encontrado',
-                'disabled_count': 0
-            }
+            return {'success': False, 'error': 'GTA V no encontrado', 'disabled_count': 0}
 
         mod_files = ['dinput8.dll', 'ScriptHookV.dll', 'dsound.dll']
-        disabled = 0
-        errors = []
+        disabled, errors = 0, []
 
         for mod in mod_files:
             mod_path = os.path.join(gta_path, mod)
@@ -506,19 +487,25 @@ class RepairService:
                 try:
                     backup_item(mod_path, mod, self.paths.backup_folder, 'Mods')
                     disabled_path = mod_path + '.disabled'
-                    os.rename(mod_path, disabled_path)
-                    disabled += 1
+                    # Si ya existe el .disabled, intentar borrarlo antes de renombrar
+                    if os.path.exists(disabled_path):
+                        safe_remove_directory(disabled_path)
+                    
+                    import time
+                    for i in range(3):
+                        try:
+                            os.rename(mod_path, disabled_path)
+                            disabled += 1
+                            break
+                        except:
+                            time.sleep(0.5)
                 except Exception as e:
                     errors.append(f"{mod}: {str(e)}")
 
         if disabled > 0:
             self._record_repair(True, f'{disabled} mods desactivados')
 
-        return {
-            'success': True,
-            'disabled_count': disabled,
-            'errors': errors if errors else None
-        }
+        return {'success': True, 'disabled_count': disabled, 'errors': errors if errors else None}
 
     # ============= SOFTWARE CONFLICTIVO =============
 
@@ -586,10 +573,12 @@ class RepairService:
         if not is_windows():
             return {'success': False, 'error': 'Solo disponible en Windows'}
 
-        fivem_exe = os.path.join(
-            self.paths.fivem_paths.get('LocalAppData', ''), 'FiveM.exe'
-        )
+        fivem_exe = os.path.join(self.paths.fivem_paths.get('LocalAppData', ''), 'FiveM.exe')
         try:
+            # Primero intentar borrar reglas existentes para evitar duplicados/errores
+            run_command(['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=FiveM Inbound'], timeout=5)
+            run_command(['netsh', 'advfirewall', 'firewall', 'delete', 'rule', 'name=FiveM Outbound'], timeout=5)
+            
             run_command([
                 'netsh', 'advfirewall', 'firewall', 'add', 'rule',
                 'name=FiveM Inbound', 'dir=in', 'action=allow',
@@ -613,16 +602,17 @@ class RepairService:
 
         paths_to_exclude = [
             self.paths.fivem_paths.get('LocalAppData', ''),
-            self.paths.fivem_paths.get('CitizenFX', '')
+            self.paths.fivem_paths.get('CitizenFX', ''),
+            os.path.join(self.paths.local_appdata, 'FiveM')
         ]
-        added = 0
-        errors = []
+        added, errors = 0, []
 
         for path in paths_to_exclude:
             if path and os.path.exists(path):
+                # Usar PowerShell con bypass de ejecucion y modo silencioso
                 result = run_powershell(
-                    f'Add-MpPreference -ExclusionPath "{path}"',
-                    timeout=10
+                    f'Add-MpPreference -ExclusionPath "{path}" -ErrorAction SilentlyContinue',
+                    timeout=15
                 )
                 if result is not None:
                     added += 1
@@ -632,11 +622,7 @@ class RepairService:
         if added > 0:
             self._record_repair(True, 'Exclusiones de Defender configuradas')
 
-        return {
-            'success': added > 0,
-            'added': added,
-            'errors': errors if errors else None
-        }
+        return {'success': added > 0, 'added': added, 'errors': errors if errors else None}
 
     # ============= REPARACION AVANZADA =============
 
