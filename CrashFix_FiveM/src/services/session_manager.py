@@ -109,6 +109,18 @@ class DiagnosticReport:
         self.critical_issues = 0
         self.warnings = 0
 
+    def update_hardware(self, gpu=None, ram=None, cpu=None, os=None):
+        """Actualiza la informacion de hardware en el reporte."""
+        if gpu: self.hardware_info['gpu'] = gpu
+        if ram: self.hardware_info['ram'] = ram
+        if cpu: self.hardware_info['cpu'] = cpu
+        if os: self.hardware_info['os'] = os
+
+    def update_network(self, status=None, ping=None):
+        """Actualiza la informacion de red en el reporte."""
+        if status: self.network_info['Status'] = status
+        if ping: self.network_info['Ping'] = ping
+
     def calculate_overall_status(self) -> str:
         """
         Calcula el estado general basado en los contadores de problemas.

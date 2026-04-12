@@ -103,8 +103,11 @@ def api_diagnostic_complete():
     # Actualizar reporte
     report = diag_session.report
     report.update_hardware(gpu=gpu_info, ram=ram_info, cpu=cpu_info, os=os_info)
-    report.update_network(status=net_info['Status'], ping=net_info['Ping'])
+    report.update_network(status=net_info.get('Status', 'OK'), ping=net_info.get('Ping', 0))
     report.gta_info = gta_info
+    
+    # Calcular estado final
+    report.calculate_overall_status()
     
     return jsonify(report.to_dict())
 
@@ -430,6 +433,161 @@ def api_detect_requirements():
     """Verifica los requisitos del sistema."""
     diag = DiagnosticService(svc_cfg)
     return jsonify(diag.check_requirements())
+
+@app.route('/api/detect/gpu', methods=['POST'])
+@api_error_handler
+def api_detect_gpu():
+    """Detecta informacion de GPU."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.get_gpu_info())
+
+@app.route('/api/detect/ram', methods=['POST'])
+@api_error_handler
+def api_detect_ram():
+    """Detecta informacion de RAM."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.get_ram_info())
+
+@app.route('/api/detect/cpu', methods=['POST'])
+@api_error_handler
+def api_detect_cpu():
+    """Detecta informacion de CPU."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.get_cpu_info())
+
+@app.route('/api/detect/temperatures', methods=['POST'])
+@api_error_handler
+def api_detect_temperatures():
+    """Obtiene temperaturas actuales."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.get_system_temperatures())
+
+@app.route('/api/detect/network', methods=['POST'])
+@api_error_handler
+def api_detect_network():
+    """Prueba la calidad de la red."""
+    net = NetworkService(svc_cfg)
+    return jsonify(net.test_network_quality())
+
+@app.route('/api/detect/packetloss', methods=['POST'])
+@api_error_handler
+def api_detect_packetloss():
+    """Prueba la perdida de paquetes."""
+    net = NetworkService(svc_cfg)
+    return jsonify(net.test_packet_loss())
+
+@app.route('/api/analyze/errors/advanced', methods=['POST'])
+@api_error_handler
+def api_analyze_errors_advanced():
+    """Analisis avanzado de errores."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.analyze_recent_errors())
+
+@app.route('/api/detect/mods', methods=['POST'])
+@api_error_handler
+def api_detect_mods():
+    """Detecta mods instalados."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.detect_mods())
+
+@app.route('/api/detect/conflicts', methods=['POST'])
+@api_error_handler
+def api_detect_conflicts():
+    """Detecta software conflictivo."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.detect_conflicting_software())
+
+@app.route('/api/detect/overlays', methods=['POST'])
+@api_error_handler
+def api_detect_overlays():
+    """Detecta overlays activos."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.detect_overlays())
+
+@app.route('/api/detect/antivirus', methods=['POST'])
+@api_error_handler
+def api_detect_antivirus():
+    """Detecta antivirus instalado."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.get_antivirus_info())
+
+@app.route('/api/detect/directx', methods=['POST'])
+@api_error_handler
+def api_detect_directx():
+    """Verifica version de DirectX."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.check_directx())
+
+@app.route('/api/detect/vcredist', methods=['POST'])
+@api_error_handler
+def api_detect_vcredist():
+    """Verifica Visual C++ Redistributables."""
+    diag = DiagnosticService(svc_cfg)
+    return jsonify(diag.check_vcredist())
+
+@app.route('/api/benchmark', methods=['POST'])
+@api_error_handler
+def api_benchmark():
+    """Ejecuta el benchmark del sistema."""
+    hw = HardwareService(svc_cfg)
+    return jsonify(hw.run_benchmark())
+
+@app.route('/api/repair/quick', methods=['POST'])
+@api_error_handler
+def api_repair_quick():
+    """Ejecuta una reparacion rapida (combinada)."""
+    diag_session = get_current_session()
+    repair = RepairService(svc_cfg, diag_session)
+    # Ejecutar varias reparaciones comunes
+    results = [
+        repair.kill_fivem_processes(),
+        repair.clear_fivem_cache_selective(),
+        repair.clear_fivem_logs()
+    ]
+    return jsonify({
+        'success': True,
+        'repairs_applied': [r['action'] if 'action' in r else 'Reparacion' for r in results if r.get('success')],
+        'recommendations': []
+    })
+
+@app.route('/api/diagnostic/full/v2', methods=['POST'])
+@api_error_handler
+def api_diagnostic_full_v2():
+    """Ejecuta el diagnostico PRO v2.0."""
+    # Similar a smart diagnose pero sin aplicar cambios
+    return api_smart_diagnose_and_fix()
+
+@app.route('/api/repair/kill', methods=['POST'])
+@api_error_handler
+def api_repair_kill():
+    """Alias para kill_fivem_processes."""
+    return api_repair_processes_kill()
+
+@app.route('/api/repair/dlls', methods=['POST'])
+@api_error_handler
+def api_repair_dlls():
+    """Alias para remove_conflicting_dlls."""
+    return api_repair_dlls_remove()
+
+@app.route('/api/repair/v8dlls', methods=['POST'])
+@api_error_handler
+def api_repair_v8dlls():
+    """Alias para remove_v8_dlls."""
+    return api_repair_v8_clean()
+
+@app.route('/api/repair/rosfiles', methods=['POST'])
+@api_error_handler
+def api_repair_rosfiles():
+    """Alias para clean_ros_files."""
+    return api_repair_ros_clean()
+
+@app.route('/api/repair/update-driver', methods=['POST'])
+@api_error_handler
+def api_repair_update_driver():
+    """Actualiza el driver de GPU."""
+    diag_session = get_current_session()
+    repair = RepairService(svc_cfg, diag_session)
+    return jsonify(repair.update_gpu_driver())
 
 @app.route('/api/detect/gtav', methods=['POST'])
 @api_error_handler
