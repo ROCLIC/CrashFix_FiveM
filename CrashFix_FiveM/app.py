@@ -34,7 +34,12 @@ svc_cfg = type('Config', (), {
 app.secret_key = svc_cfg.server_config.secret_key
 
 def get_current_session():
-    return get_session_manager().get_active_session()
+    # En esta aplicacion manejamos una sesion activa principal
+    sm = get_session_manager()
+    if sm.active_sessions_count > 0:
+        # Retornar la ultima sesion activa
+        return list(sm._sessions.values())[-1]
+    return sm.create_session()
 
 def api_error_handler(f):
     from functools import wraps

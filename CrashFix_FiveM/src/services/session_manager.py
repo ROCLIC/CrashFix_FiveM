@@ -25,10 +25,10 @@ class RepairStats:
 
     def to_dict(self) -> Dict[str, int]:
         return {
-            'Attempted': self.attempted,
-            'Successful': self.successful,
-            'Failed': self.failed,
-            'Skipped': self.skipped
+            'attempted': self.attempted,
+            'successful': self.successful,
+            'failed': self.failed,
+            'skipped': self.skipped
         }
 
     def increment_attempted(self):
