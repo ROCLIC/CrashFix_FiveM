@@ -72,8 +72,9 @@ def api_status():
         'RAM': hw.get_ram_info()
     }
     
+    # Usar el estado general del reporte ya que DiagnosticSession no tiene 'status' directo
     return jsonify({
-        'status': session.status,
+        'status': session.report.overall_status,
         'session_id': session.session_id,
         'report': session.report.to_dict(),
         'hardware_info': hw_info,
