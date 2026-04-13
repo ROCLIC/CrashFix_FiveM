@@ -768,3 +768,41 @@ body {
     .content-grid { padding: 0 12px 12px; }
     .main-header { padding: 12px 16px; }
 }
+
+/* ============= SOCIAL SECTION ============= */
+.social-section {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+}
+
+.social-links {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px 5px;
+    gap: 10px;
+}
+
+.social-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: var(--transition);
+    font-size: 1.2rem;
+}
+
+.social-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--accent-purple);
+}
+
+.social-btn.twitter:hover { background: #1da1f220; border-color: #1da1f2; }
+.social-btn.instagram:hover { background: #e1306c20; border-color: #e1306c; }
+.social-btn.discord:hover { background: #5865f220; border-color: #5865f2; }
