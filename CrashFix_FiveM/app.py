@@ -674,6 +674,21 @@ if __name__ == '__main__':
     os.makedirs(svc_cfg.system_paths.work_folder, exist_ok=True)
     os.makedirs(svc_cfg.system_paths.backup_folder, exist_ok=True)
     
+    # --- Lógica de apertura automática del navegador ---
+    # Solo se ejecuta si no estamos en modo debug o si es el proceso principal de Flask
+    if not svc_cfg.server_config.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        import webbrowser
+        from threading import Timer
+        
+        def open_browser():
+            url = f"http://{svc_cfg.server_config.host}:{svc_cfg.server_config.port}"
+            logger.info(f"Abriendo interfaz web en: {url}")
+            webbrowser.open(url)
+        
+        # Iniciamos un temporizador para dar tiempo a Flask a arrancar
+        Timer(1.5, open_browser).start()
+    # --------------------------------------------------
+    
     app.run(
         host=svc_cfg.server_config.host,
         port=svc_cfg.server_config.port,
