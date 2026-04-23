@@ -804,30 +804,157 @@ class RepairService:
             return {'success': False, 'error': str(e)}
 
     def configure_texture_budget(self) -> Dict[str, Any]:
-        """Configura el Texture Budget basado en la VRAM detectada."""
+        """Configura el Texture Budget basado en la VRAM detectada.
+
+        Escribe directamente en CitizenFX.ini y verifica que el cambio
+        se haya aplicado correctamente. No marca exito si el archivo
+        no fue modificado.
+        """
         from src.services.hardware_service import HardwareService
         hw = HardwareService(self.config)
         gpu_info = hw.get_gpu_info()
-        
+
         # Obtener VRAM real o usar 2GB como fallback conservador
         vram = 2
         if gpu_info and len(gpu_info) > 0:
             vram = gpu_info[0].get('VRAM_GB', 2)
-            
+
         # Calcular budget (20% por cada GB de VRAM, max 100%)
         budget = min(100, max(0, vram * 20))
-        
-        self.session.report.add_recommendation(
-            f'Ajusta "Extended Texture Budget" a {budget}% en los ajustes gráficos de FiveM'
-        )
-        self._record_repair(True, f'Cálculo de Texture Budget completado para {vram}GB VRAM: {budget}%')
-        
-        return {
-            'success': True,
-            'vram_detected': vram,
-            'recommended_budget': budget,
-            'message': f'Se recomienda configurar el Texture Budget al {budget}%'
-        }
+
+        # --- Localizar CitizenFX.ini ---
+        ini_path = self.paths.fivem_paths.get('CitizenFXIni', '')
+        ini_path_legacy = self.paths.fivem_paths.get('CitizenFXIniLegacy', '')
+
+        # Usar la ruta principal; si no existe el directorio padre, intentar legacy
+        target_path = None
+        if ini_path and os.path.isdir(os.path.dirname(ini_path)):
+            target_path = ini_path
+        elif ini_path_legacy and os.path.isdir(os.path.dirname(ini_path_legacy)):
+            target_path = ini_path_legacy
+
+        if not target_path:
+            msg = (f'No se encontro la carpeta de FiveM.app. '
+                   f'Rutas verificadas: {ini_path}, {ini_path_legacy}')
+            logger.error(msg)
+            self._record_repair(False, msg)
+            self.session.report.add_recommendation(
+                f'Ajusta "Extended Texture Budget" a {budget}% manualmente en los ajustes graficos de FiveM'
+            )
+            return {
+                'success': False,
+                'error': msg,
+                'vram_detected': vram,
+                'recommended_budget': budget
+            }
+
+        # --- Leer contenido actual (si existe) ---
+        current_content = ''
+        if os.path.exists(target_path):
+            try:
+                with open(target_path, 'r', encoding='utf-8') as f:
+                    current_content = f.read()
+            except Exception as e:
+                logger.warning(f"Error leyendo CitizenFX.ini existente: {e}")
+                current_content = ''
+
+        # --- Backup antes de modificar ---
+        if os.path.exists(target_path):
+            try:
+                backup_item(
+                    target_path,
+                    os.path.basename(target_path),
+                    self.paths.backup_folder,
+                    'Config'
+                )
+            except Exception as e:
+                logger.warning(f"Error creando backup de CitizenFX.ini: {e}")
+
+        # --- Preparar el nuevo contenido ---
+        texture_line = f'TextureBudget={budget}'
+        new_content = current_content
+
+        if 'TextureBudget=' in current_content:
+            # Reemplazar la linea existente
+            import re
+            new_content = re.sub(
+                r'TextureBudget=\d+',
+                texture_line,
+                current_content
+            )
+        else:
+            # Agregar la linea al final
+            if new_content and not new_content.endswith('\n'):
+                new_content += '\n'
+            new_content += texture_line + '\n'
+
+        # --- Escribir el archivo ---
+        try:
+            with open(target_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+        except PermissionError:
+            msg = f'Sin permisos para escribir en {target_path}. Ejecuta como administrador.'
+            logger.error(msg)
+            self._record_repair(False, msg)
+            return {
+                'success': False,
+                'error': msg,
+                'vram_detected': vram,
+                'recommended_budget': budget
+            }
+        except Exception as e:
+            msg = f'Error al escribir CitizenFX.ini: {e}'
+            logger.error(msg)
+            self._record_repair(False, msg)
+            return {
+                'success': False,
+                'error': msg,
+                'vram_detected': vram,
+                'recommended_budget': budget
+            }
+
+        # --- Verificar que el cambio se aplico realmente ---
+        try:
+            with open(target_path, 'r', encoding='utf-8') as f:
+                verify_content = f.read()
+        except Exception as e:
+            msg = f'No se pudo verificar CitizenFX.ini despues de escribir: {e}'
+            logger.error(msg)
+            self._record_repair(False, msg)
+            return {
+                'success': False,
+                'error': msg,
+                'vram_detected': vram,
+                'recommended_budget': budget
+            }
+
+        if texture_line in verify_content:
+            self._record_repair(
+                True,
+                f'Texture Budget configurado a {budget}% en {target_path} (VRAM: {vram}GB)'
+            )
+            self.session.report.add_recommendation(
+                f'Texture Budget configurado automaticamente a {budget}% en CitizenFX.ini'
+            )
+            return {
+                'success': True,
+                'vram_detected': vram,
+                'recommended_budget': budget,
+                'path': target_path,
+                'message': f'Texture Budget configurado a {budget}% en CitizenFX.ini'
+            }
+        else:
+            msg = (f'Se escribio en CitizenFX.ini pero la verificacion fallo: '
+                   f'la linea "{texture_line}" no se encontro en el archivo.')
+            logger.error(msg)
+            self._record_repair(False, msg)
+            return {
+                'success': False,
+                'error': msg,
+                'vram_detected': vram,
+                'recommended_budget': budget,
+                'path': target_path
+            }
 
     def optimize_windows(self) -> Dict[str, Any]:
         """Aplica optimizaciones de Windows para mejorar el rendimiento en gaming."""
@@ -961,6 +1088,10 @@ class RepairService:
 
         installer_path = os.path.join(download_dir, 'nvidia_driver_setup.exe')
 
+        # --- Capturar version ANTES de la instalacion ---
+        pre_install_version = self._get_current_nvidia_version()
+        logger.info(f"NVIDIA driver version before install: {pre_install_version}")
+
         try:
             # Descargar instalador
             logger.info(f"Downloading NVIDIA driver from: {download_url}")
@@ -983,34 +1114,97 @@ class RepairService:
 
             # Ejecutar instalador en modo silencioso (solo driver, sin GeForce Experience)
             try:
-                run_command(
+                install_result = run_command(
                     [installer_path, '-s', '-noreboot', '-noeula', '-clean'],
                     timeout=300  # 5 minutos para instalacion
                 )
-                self._record_repair(
-                    True,
-                    f'Driver NVIDIA actualizado: {driver_info.get("current_driver")} -> {driver_info.get("latest_driver")}'
+
+                # Validar exit code del instalador
+                if install_result is None or install_result.returncode != 0:
+                    exit_code = install_result.returncode if install_result else 'N/A'
+                    stderr_msg = (install_result.stderr or '').strip() if install_result else ''
+                    logger.error(f"NVIDIA silent installer failed with exit code {exit_code}: {stderr_msg}")
+                    self._record_repair(False, f'Instalador NVIDIA fallo (exit code: {exit_code})')
+                    return {
+                        'success': False,
+                        'error': f'El instalador NVIDIA fallo (exit code: {exit_code})',
+                        'action': 'manual',
+                        'download_url': download_url,
+                        'installer_path': installer_path
+                    }
+
+                # --- Verificar version DESPUES de la instalacion ---
+                import time as _time
+                _time.sleep(3)  # Breve espera para que el sistema registre el nuevo driver
+                post_install_version = self._get_current_nvidia_version()
+                logger.info(f"NVIDIA driver version after install: {post_install_version}")
+
+                # Determinar si la actualizacion fue real
+                version_changed = (
+                    post_install_version is not None
+                    and pre_install_version is not None
+                    and post_install_version != pre_install_version
                 )
-                return {
-                    'success': True,
-                    'action': 'installed',
-                    'previous_driver': driver_info.get('current_driver'),
-                    'new_driver': driver_info.get('latest_driver'),
-                    'requires_restart': True,
-                    'message': 'Driver NVIDIA instalado. Se recomienda reiniciar el PC.'
-                }
+                version_matches_target = False
+                try:
+                    target = driver_info.get('latest_driver', '')
+                    if post_install_version and target:
+                        version_matches_target = float(post_install_version) >= float(target)
+                except (ValueError, TypeError):
+                    pass
+
+                if version_changed or version_matches_target:
+                    self._record_repair(
+                        True,
+                        f'Driver NVIDIA actualizado: {pre_install_version} -> {post_install_version}'
+                    )
+                    return {
+                        'success': True,
+                        'action': 'installed',
+                        'previous_driver': pre_install_version,
+                        'new_driver': post_install_version,
+                        'requires_restart': True,
+                        'message': 'Driver NVIDIA instalado y verificado. Se recomienda reiniciar el PC.'
+                    }
+                else:
+                    # El instalador termino con exit code 0 pero la version no cambio
+                    logger.warning(
+                        f"NVIDIA installer exited OK but driver version unchanged: "
+                        f"{pre_install_version} -> {post_install_version}"
+                    )
+                    self._record_repair(
+                        False,
+                        f'Instalador NVIDIA termino pero la version no cambio ({post_install_version})'
+                    )
+                    return {
+                        'success': False,
+                        'error': 'El instalador termino pero la version del driver no cambio. '
+                                 'Puede requerir reinicio o ejecucion manual como administrador.',
+                        'action': 'manual',
+                        'previous_driver': pre_install_version,
+                        'post_driver': post_install_version,
+                        'requires_restart': True,
+                        'download_url': download_url,
+                        'installer_path': installer_path
+                    }
+
             except Exception as e:
                 logger.warning(f"Silent install failed, opening installer: {e}")
                 # Si falla el modo silencioso, abrir el instalador normalmente
                 try:
                     import subprocess
                     subprocess.Popen([installer_path], shell=True)
-                    self._record_repair(True, 'Instalador de driver NVIDIA abierto')
+                    self._record_repair(
+                        False,
+                        'Instalacion silenciosa fallo. Instalador NVIDIA abierto manualmente (pendiente de verificacion).'
+                    )
                     return {
-                        'success': True,
+                        'success': False,
                         'action': 'opened_installer',
-                        'message': 'Se abrio el instalador de NVIDIA. Sigue las instrucciones en pantalla.',
-                        'installer_path': installer_path
+                        'message': 'La instalacion silenciosa fallo. Se abrio el instalador de NVIDIA. '
+                                   'Sigue las instrucciones en pantalla y reinicia el PC.',
+                        'installer_path': installer_path,
+                        'requires_manual_verification': True
                     }
                 except Exception as e2:
                     return {
@@ -1029,11 +1223,41 @@ class RepairService:
                 'download_url': download_url
             }
 
+    def _get_current_nvidia_version(self) -> Optional[str]:
+        """Obtiene la version actual del driver NVIDIA via nvidia-smi."""
+        try:
+            smi_result = run_command(
+                ['nvidia-smi', '--query-gpu=driver_version', '--format=csv,noheader'],
+                timeout=10
+            )
+            if smi_result and smi_result.returncode == 0:
+                version = smi_result.stdout.strip().split('\n')[0].strip()
+                if version:
+                    return version
+        except Exception as e:
+            logger.debug(f"nvidia-smi version query failed: {e}")
+        # Fallback: WMI
+        try:
+            wmi_result = run_powershell(
+                'Get-WmiObject Win32_VideoController | Where-Object {$_.Name -like "*NVIDIA*"} '
+                '| Select-Object -First 1 -ExpandProperty DriverVersion',
+                timeout=10
+            )
+            if wmi_result:
+                return wmi_result.strip()
+        except Exception as e:
+            logger.debug(f"WMI NVIDIA driver version query failed: {e}")
+        return None
+
     def _download_and_install_amd_driver(self, download_dir: str,
                                           driver_info: Dict) -> Dict[str, Any]:
         """Descarga e instala AMD Software Adrenalin."""
         import os
         import urllib.request
+
+        # --- Capturar version ANTES de la instalacion ---
+        pre_install_version = self._get_current_amd_version()
+        logger.info(f"AMD driver version before install: {pre_install_version}")
 
         # AMD Auto-Detect and Install tool
         amd_autodetect_url = 'https://drivers.amd.com/drivers/installer/24.10/whql/amd-software-auto-detect.exe'
@@ -1053,12 +1277,20 @@ class RepairService:
             if os.path.exists(installer_path) and os.path.getsize(installer_path) > 1024:
                 import subprocess
                 subprocess.Popen([installer_path], shell=True)
-                self._record_repair(True, 'AMD Software Auto-Detect abierto para actualizar driver')
+                # AMD Auto-Detect es interactivo: NO marcar como exito,
+                # ya que no podemos verificar si el usuario completo la instalacion.
+                self._record_repair(
+                    False,
+                    'AMD Software Auto-Detect abierto. Pendiente de verificacion manual por el usuario.'
+                )
                 return {
-                    'success': True,
+                    'success': False,
                     'action': 'opened_installer',
-                    'message': 'Se abrio AMD Software Auto-Detect. Detectara e instalara el mejor driver automaticamente.',
-                    'installer_path': installer_path
+                    'message': 'Se abrio AMD Software Auto-Detect. Sigue las instrucciones en pantalla '
+                               'para completar la actualizacion. El estado se verificara al reiniciar el diagnostico.',
+                    'installer_path': installer_path,
+                    'previous_driver': pre_install_version,
+                    'requires_manual_verification': True
                 }
             else:
                 return {
@@ -1075,3 +1307,17 @@ class RepairService:
                 'action': 'manual',
                 'download_url': 'https://www.amd.com/en/support/download/drivers.html'
             }
+
+    def _get_current_amd_version(self) -> Optional[str]:
+        """Obtiene la version actual del driver AMD via WMI."""
+        try:
+            wmi_result = run_powershell(
+                'Get-WmiObject Win32_VideoController | Where-Object {$_.Name -like "*AMD*" -or $_.Name -like "*Radeon*"} '
+                '| Select-Object -First 1 -ExpandProperty DriverVersion',
+                timeout=10
+            )
+            if wmi_result:
+                return wmi_result.strip()
+        except Exception as e:
+            logger.debug(f"WMI AMD driver version query failed: {e}")
+        return None
